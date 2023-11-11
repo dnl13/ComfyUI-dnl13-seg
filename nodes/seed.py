@@ -1,7 +1,3 @@
-import segment_anything 
-
-print(SamPredictor);
-
 class dnl13_TEST:
     version = '1.0.0'
     def __init__(self):
