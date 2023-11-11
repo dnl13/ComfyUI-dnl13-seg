@@ -1,0 +1,3 @@
+[submodule "sam-hq"]
+	path = sam-hq
+	url = https://github.com/SysCV/sam-hq.git
