@@ -26,6 +26,9 @@ and  https://github.com/facebookresearch/dinov2
 <h4>Utilize Automatic Segmentation with SAM (segment-anything)</h4>
 Autodetect elements in images and return images as possible greenscreen footage, the element-detected mask in full size of the fed image, a cropped version of the image where the element was detected, also with a separated mask, and a bbox list to later use the detected information in other workflow processes. 
 
+
+TODO: read this: https://github.com/facebookresearch/segment-anything/issues/185
+
 ##### Arguments:
 
 - `model (SAM_MODEL)` The SAM model to use for mask prediction.

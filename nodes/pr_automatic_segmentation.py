@@ -5,6 +5,8 @@ from .sam_hq.segment_anything import SamAutomaticMaskGenerator
 from .utils.img_bm_tools import parse_binary_masks, images_greenscreen, crop_to_bbox, tensor_to_pil
 from .sam_hq.segment_anything.utils.amg import mask_to_rle_pytorch
 ##
+# from local_groundingdino.datasets import transforms as T
+#
 
 from .utils.fallback_logging import logger
 from PIL import Image
@@ -25,6 +27,19 @@ def show_anns(anns):
         color_mask = np.concatenate([np.random.random(3), [0.35]])
         img[m] = color_mask
     ax.imshow(img)
+
+def load_dino_image(image_pil):
+    transform = T.Compose(
+        [
+            T.RandomResize([800], max_size=1333),
+            T.ToTensor(),
+            T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        ]
+    )
+    image, _ = transform(image_pil, None)  # 3, h, w
+    return image
+
+
 
 
 class dnl13_AutomaticSegmentation:
@@ -89,10 +104,23 @@ class dnl13_AutomaticSegmentation:
 
 
 
-        #sam = SamAutomaticMaskGenerator(sam_model, points_per_side, points_per_batch, pred_iou_thresh, stability_score_thresh, stability_score_offset,
-        #                                box_nms_thresh, crop_n_layers, crop_nms_thresh, crop_overlap_ratio, crop_n_points_downscale_factor, point_grids, min_mask_region_area)
+        sam = SamAutomaticMaskGenerator(
+            sam_model, 
+            points_per_side=points_per_side, 
+            points_per_batch=points_per_batch, 
+            pred_iou_thresh=pred_iou_thresh, 
+            stability_score_thresh=stability_score_thresh, 
+            #stability_score_offset,
+            box_nms_thresh=box_nms_thresh, 
+            #crop_n_layers, 
+            #crop_nms_thresh, 
+            #crop_overlap_ratio, 
+            #crop_n_points_downscale_factor, 
+            point_grids=point_grids, 
+            min_mask_region_area=min_mask_region_area
+        )
         
-        sam = SamAutomaticMaskGenerator(sam_model, points_per_side, pred_iou_thresh, stability_score_thresh, crop_n_layers, crop_n_points_downscale_factor, min_mask_region_area)
+        #sam = SamAutomaticMaskGenerator(sam_model, points_per_side, pred_iou_thresh, stability_score_thresh, crop_n_layers, crop_n_points_downscale_factor, min_mask_region_area)
 
 
 
