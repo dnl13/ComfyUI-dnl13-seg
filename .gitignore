@@ -153,3 +153,4 @@ cython_debug/
 *.pyc
 
 # Custom
+nodes/sam_hq/
