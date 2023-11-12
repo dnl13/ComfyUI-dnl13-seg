@@ -160,3 +160,6 @@ nodes/sam_hq/train
 nodes/sam_hq/visual_demo
 nodes/sam_hq/setup.cfg
 nodes/sam_hq/setup.py
+nodes/sam_hq/segment_anything/__pycache__/
+nodes/sam_hq/segment_anything/modeling/__pycache__/
+nodes/sam_hq/segment_anything/utils/__pycache__/
