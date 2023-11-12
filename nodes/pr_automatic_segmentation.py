@@ -63,10 +63,8 @@ class dnl13_AutomaticSegmentation:
         # get
         image_pil = tensor_to_pil(image_input)
 
-        # Anzeige des Bildes
-        image_pil.show()
-
-       
+ 
+    # TODO: Dropdown Button for model size selection tiny,sb,l,h etc. or model loader node
 
         # NOTE :maybe cpu switch
 

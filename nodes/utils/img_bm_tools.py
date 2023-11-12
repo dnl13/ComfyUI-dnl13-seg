@@ -28,8 +28,8 @@ def crop_to_bbox(images, masks, bboxs):
 
 
 def tensor_to_pil(tensor):
-    # TODO: hier läuft auch noch nicht alles rund
-    tensor_rgb = tensor.squeeze(0) if tensor.dim() == 4 else tensor
-    #tensor_rgb = tensor_rgb[:3, :, :]
+    rgb = tensor.squeeze(0) if tensor.dim() == 4 else tensor
+    rgb = rgb.permute(2, 0, 1)
     to_pil = transforms.ToPILImage()
-    return to_pil(tensor_rgb)
+    image_pil = to_pil(rgb)
+    return image_pil
