@@ -1,0 +1,4 @@
+[submodule "sam_hq"]
+	path = sam_hq
+	url = https://github.com/SysCV/sam-hq.git
+	ignore = all
