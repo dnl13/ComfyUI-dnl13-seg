@@ -153,13 +153,6 @@ cython_debug/
 *.pyc
 
 # Custom
-nodes/sam_hq/demo
-nodes/sam_hq/figs
-nodes/sam_hq/scripts
-nodes/sam_hq/train
-nodes/sam_hq/visual_demo
-nodes/sam_hq/setup.cfg
-nodes/sam_hq/setup.py
-nodes/sam_hq/segment_anything/__pycache__/
-nodes/sam_hq/segment_anything/modeling/__pycache__/
-nodes/sam_hq/segment_anything/utils/__pycache__/
+sam_hq/*
+!sam_hq/segment_anything
+!sam_hq/seginw
