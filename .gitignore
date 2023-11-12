@@ -154,5 +154,3 @@ cython_debug/
 
 # Custom
 sam_hq/*
-!sam_hq/segment_anything
-!sam_hq/seginw
