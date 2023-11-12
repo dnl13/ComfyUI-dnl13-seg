@@ -1,6 +1,6 @@
 # Some Notes
 
-Trying to utalize https://github.com/SysCV/sam-hq
+Trying to utilize https://github.com/SysCV/sam-hq
 and  https://github.com/facebookresearch/dinov2
 
 
