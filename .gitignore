@@ -153,4 +153,4 @@ cython_debug/
 *.pyc
 
 # Custom
-sam_hq/*
+sam-hq/
