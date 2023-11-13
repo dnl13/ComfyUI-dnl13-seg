@@ -1,3 +1,8 @@
+# IMPORTANT!
+This is still in a very, very early alpha development phase and will crash if you attempt to install it. I plan to conduct thorough research to maximize its potential. After laying the foundations, there will be an extended testing phase where I'll explore ways to optimize processes.
+
+BE AWARE! Nothing will work as you might imagine it.
+
 # Some Notes
 
 Trying to utilize https://github.com/SysCV/sam-hq
