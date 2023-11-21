@@ -8,6 +8,15 @@
 #project_path = os.path.dirname(current_path)
 #sys.path.append(project_path)
 
+import os
+import sys
+
+# Füge das Verzeichnis des Moduls zum sys.path hinzu
+#sys.path.append(os.path.join(os.path.dirname(__file__), "nodes"))
+sys.path.append(os.path.join(os.path.dirname(__file__), "libs"))
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+
 # Import Nodes
 from .index import NODE_CLASS_MAPPINGS
 
@@ -18,11 +27,3 @@ __all__ = ['NODE_CLASS_MAPPINGS']
 
 
 
-# - WAS Dictionary
-MANIFEST = {
-    "name": "DNL13 Nodes",  # The title that will be displayed on Node Class menu,. and Node Class view
-    "version": (0, 1, 0),  # Version of the custom_node or sub module
-    "author": "Daniel Herfen",  # Author or organization of the custom_node or sub module
-    "project": "https://github.com/dnl13/comfy_mtb",  # The address that the `name` value will link to on Node Class Views
-    "description": "testing segmantations",
-}
