@@ -106,7 +106,6 @@ def get_grounding_output(
 
 
     if "|" in caption:
-        print(">>>>>>>>>>>>>>>>>>>>TRUE")
         captions = split_captions(caption)
         all_boxes = []
         for caption in captions:
