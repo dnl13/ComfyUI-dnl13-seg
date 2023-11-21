@@ -3,7 +3,8 @@ import folder_paths
 
 from ..utils.collection  import get_local_filepath
 #from sam_hq.build_sam_hq import sam_model_registry
-from segment_anything_hq import sam_model_registry
+#from segment_anything_hq import sam_model_registry
+from ..utils.sam_build_utils import sam_model_registry
 
 sam_model_dir = os.path.join(folder_paths.models_dir, "sams")
 sam_model_list = {
@@ -32,8 +33,7 @@ def list_sam_model():
     return list(sam_model_list.keys())
 
 def load_sam_model(model_name ):
-    sam_checkpoint_path = get_local_filepath(
-        sam_model_list[model_name]["model_url"], sam_model_dir)
+    sam_checkpoint_path = get_local_filepath(sam_model_list[model_name]["model_url"], sam_model_dir)
     model_file_name = os.path.basename(sam_checkpoint_path)
     model_type = model_file_name.split('.')[0]
     #if 'hq' not in model_type and 'mobile' not in model_type:

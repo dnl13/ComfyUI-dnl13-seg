@@ -6,7 +6,7 @@ from PIL import Image
 from urllib.parse import urlparse
 
 import folder_paths
-
+import comfy.model_management
 from torchvision.transforms import ToTensor
 from torch.hub import download_url_to_file
 from .image_processing import split_image_mask
@@ -78,3 +78,13 @@ def split_captions(input_string):
 
 def is_rgba_tensor(tensor):
     return tensor.shape[-1] == 4
+
+
+def device_mapping(dedicated_device):
+    device_mapping = {  
+        "Auto": comfy.model_management.get_torch_device(),
+        "CPU": torch.device("cpu"),
+        "GPU": torch.device("cuda")
+    }
+    device = device_mapping.get(dedicated_device)
+    return device
