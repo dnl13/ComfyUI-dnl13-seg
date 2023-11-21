@@ -37,6 +37,7 @@ def load_groundingdino_model(model_name):
             groundingdino_model_list[model_name]["model_url"],
             groundingdino_model_dir,
         ),
+        map_location="cpu"
     )
             
     dino.load_state_dict(local_groundingdino_clean_state_dict(
