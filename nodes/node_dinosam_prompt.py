@@ -124,7 +124,7 @@ class GroundingDinoSAMSegment:
                 device
             )
             
-            print("phrases>>>",phrases)
+            print("\033[1;32m(dnl13-seg)\033[0m > phrase(confidence):", phrases)
             
             # if nothing is detected set detection_errors
             if boxes.numel() == 0:
@@ -152,7 +152,7 @@ class GroundingDinoSAMSegment:
         
         # if nothing was detected just send simple input image and empty mask
         if detection_errors is not False:
-            print("\033[1;32m(segment-anything)\033[0m The tensor 'boxes' is empty. No elements were found in the image search.")
+            print("\033[1;32m(dnl13-seg)\033[0m The tensor 'boxes' is empty. No elements were found in the image search.")
             res_images.append(image)
             res_masks.append(empty_mask)
 
