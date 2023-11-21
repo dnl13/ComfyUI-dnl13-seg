@@ -15,7 +15,7 @@ from .nodes.node_combine_images_by_mask import CombineImagesByMask
 
 NODE_CLASS_MAPPINGS = {
     "Automatic Segmentation (dnl13)": SAMAutoSegment,
-    "GroundingDinoSAMSegment (dnl13)": GroundingDinoSAMSegment,
+    "Mask with prompt (dnl13)": GroundingDinoSAMSegment,
     "Dinov1 Model Loader (dnl13)": GroundingDinoModelLoaderV1,
     "SAM Model Loader (dnl13)": SAMModelLoader,
     'BatchSelector (dnl13)': BatchSelector,
