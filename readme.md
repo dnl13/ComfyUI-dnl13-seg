@@ -44,14 +44,18 @@ python_embeded\python.exe -m pip install -r ".\ComfyUI\custom_nodes\ComfyUI-dnl1
 ```
 
 ## 📜 Documentation
+
+
+Due to the fact that the nodes are still in development and subject to change at any time, I encourage you to share your experiences, tips, and tricks in the discussions forum. Once it becomes apparent that the nodes have reached a stable state with minimal changes, I'll be happy to compile our collective knowledge into a wiki for a comprehensive guide on using the nodes. So please don't hesitate to join the discussions.
+
+Feel free to jump into the discussions and share your insights!
+
 ### Processing Nodes 
 
-<details open>
+<details>
 <summary><strong>Automatic Segmentation</strong></summary>
 
 <blockquote><br>
-
-![Automatic Segmentation](https://raw.githubusercontent.com/dnl13/ComfyUI-dnl13-seg/main/doc_assets/img/nodes/automatic_segmentation.jpg)
 
 <h4>Utilize Automatic Segmentation with SAM (segment-anything)</h4>
 Autodetect elements in images and return images as possible greenscreen footage, the element-detected mask in full size of the fed image, a cropped version of the image where the element was detected, also with a separated mask, and a bbox list to later use the detected 
@@ -83,7 +87,8 @@ Automatic Segmentations possible options:
 
 (discussion needed)(+) crop_n_layers (int): If >0, mask prediction will be run again on crops of the image. Sets the number of layers to run, where each layer has 2**i_layer number of image crops.  
 
-(discussion needed)(+) crop_nms_thresh (float): The box IoU cutoff used by non-maximal suppression to filter duplicate masks between different crops.     
+(discussion needed)(+) crop_nms_thresh (float): The box IoU cutoff used by non-maximal suppression to filter duplicate masks between different crops. 
+
 (discussion needed)(+) crop_overlap_ratio (float): Sets the degree to which crops overlap. In the first crop layer, crops will overlap by this fraction of the image length. Later layers with more crops scale down this overlap.
 
 (discussion needed)(-) crop_n_points_downscale_factor (int): The number of points-per-side sampled in layer n is scaled down by crop_n_points_downscale_factor**n.       
@@ -97,22 +102,6 @@ Automatic Segmentations possible options:
 
 
 <hr>
-
-### Utility Nodes
-
-<details open>
-  <summary><strong>RGB</strong></summary>
-<blockquote>
-
-### RGB
-TODO: Docs for RGB
-Returns a RGB tuple `(R,G,B)`
-
-#### Arguments:
-
-`None`
-</blockquote>
-</details>
 
 
 ## ❤ THANK YOU!
