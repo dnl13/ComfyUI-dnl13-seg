@@ -4,6 +4,7 @@ from PIL import Image
 
 import comfy.model_management
 from ..node_fnc.node_sam_autoseg import sam_auto_segmentationHQ
+from ..utils.collection import check_mps_device
 
 class SAMAutoSegment:
     @classmethod
@@ -82,7 +83,7 @@ class SAMAutoSegment:
         """
         #
         device_mapping = {
-            "Auto": comfy.model_management.get_torch_device(),
+            "Auto": check_mps_device(),
             "CPU": torch.device("cpu"),
             "GPU": torch.device("cuda")
         }

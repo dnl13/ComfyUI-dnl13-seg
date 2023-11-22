@@ -11,6 +11,7 @@ from functools import partial
 #from segment_anything.modeling import ImageEncoderViT, MaskDecoder, PromptEncoder, Sam, TwoWayTransformer, TinyViT
 from segment_anything.modeling import ImageEncoderViT, MaskDecoder, PromptEncoder, Sam, TwoWayTransformer
 import comfy.model_management
+from .collection import check_mps_device
 
 def build_sam_vit_h(checkpoint=None):
     return _build_sam(
@@ -103,6 +104,6 @@ def _build_sam(
     sam.eval()
     if checkpoint is not None:
         with open(checkpoint, "rb") as f:
-            state_dict = torch.load(f, map_location=comfy.model_management.get_torch_device())
+            state_dict = torch.load(f, map_location=check_mps_device())
         sam.load_state_dict(state_dict)
     return sam

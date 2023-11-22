@@ -10,6 +10,7 @@ from functools import partial
 import comfy.model_management
 from segment_anything_hq.modeling import ImageEncoderViT, MaskDecoderHQ, PromptEncoder, Sam, TwoWayTransformer, TinyViT
 import comfy.model_management
+from .collection import check_mps_device
 
 def build_sam_vit_h(checkpoint=None):
     return _build_sam(
@@ -89,7 +90,7 @@ def build_sam_vit_t(checkpoint=None):
     mobile_sam.eval()
     if checkpoint is not None:
         with open(checkpoint, "rb") as f:
-            state_dict = torch.load(f, map_location=comfy.model_management.get_torch_device())
+            state_dict = torch.load(f, map_location=check_mps_device())
         info = mobile_sam.load_state_dict(state_dict, strict=False)
         print(info)
     for n, p in mobile_sam.named_parameters():
@@ -157,7 +158,7 @@ def _build_sam(
     sam.eval()
     if checkpoint is not None:
         with open(checkpoint, "rb") as f:
-            state_dict = torch.load(f , map_location=comfy.model_management.get_torch_device())
+            state_dict = torch.load(f ,  map_location=check_mps_device())
         info = sam.load_state_dict(state_dict, strict=False)
         print(info)
     for n, p in sam.named_parameters():

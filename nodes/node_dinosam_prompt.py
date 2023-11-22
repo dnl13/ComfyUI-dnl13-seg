@@ -4,7 +4,7 @@ from PIL import Image
 
 import comfy.model_management
 from ..node_fnc.node_dinosam_prompt import sam_segment, groundingdino_predict
-from ..utils.collection import get_local_filepath
+from ..utils.collection import get_local_filepath, check_mps_device
 import os
 import folder_paths
 
@@ -117,8 +117,9 @@ class GroundingDinoSAMSegment:
         #load Grounding Dino Model
         #grounding_dino_model = load_groundingdino_model(grounding_dino_model)
         #
+        # :TODO - if comfy.model_management.get_torch_device(), returns mps (apple silicon) switch to CPU 
         device_mapping = {
-            "Auto": comfy.model_management.get_torch_device(),
+            "Auto": check_mps_device(),
             "CPU": torch.device("cpu"),
             "GPU": torch.device("cuda")
         }
@@ -155,7 +156,6 @@ class GroundingDinoSAMSegment:
                 device
             )
             
-            print("\033[1;32m(dnl13-seg)\033[0m > phrase(confidence):", phrases)
             # if nothing is detected set detection_errors
             if boxes.numel() == 0:
                 detection_errors = True
@@ -177,7 +177,9 @@ class GroundingDinoSAMSegment:
             )
             # sort output according to the prompt input
             if multimask is True: 
-                _ , masks, images =  sort_result_to_prompt(phrases, masks, images , prompt)
+                phrases , masks, images =  sort_result_to_prompt(phrases, masks, images , prompt)
+
+            print("\033[1;32m(dnl13-seg)\033[0m > phrase(confidence):", phrases)
             # add results to output
             res_images.extend(images)
             res_masks.extend(masks)

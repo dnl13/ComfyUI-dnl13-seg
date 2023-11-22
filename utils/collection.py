@@ -88,3 +88,11 @@ def device_mapping(dedicated_device):
     }
     device = device_mapping.get(dedicated_device)
     return device
+
+
+def check_mps_device():
+    torch_device = comfy.model_management.get_torch_device()
+    if torch_device == 'mps' or torch_device == 'mps:0' :
+        print("Found 'mps' in torch device. Switching to CPU.")
+        return "cpu"
+    return torch_device

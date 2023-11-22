@@ -7,7 +7,8 @@ from groundingdino.util.utils import clean_state_dict as local_groundingdino_cle
 from groundingdino.util.slconfig import SLConfig as local_groundingdino_SLConfig
 from groundingdino.models import build_model as local_groundingdino_build_model
 
-from ..utils.collection  import get_local_filepath
+from ..utils.collection  import get_local_filepath, check_mps_device
+
 
 groundingdino_model_dir = os.path.join(
     folder_paths.models_dir, "grounding-dino")
@@ -37,7 +38,7 @@ def load_groundingdino_model(model_name):
             groundingdino_model_list[model_name]["model_url"],
             groundingdino_model_dir,
         ),
-        map_location=comfy.model_management.get_torch_device()
+        map_location=check_mps_device()
     )
             
     dino.load_state_dict(local_groundingdino_clean_state_dict(
