@@ -7,9 +7,9 @@
 import torch
 
 from functools import partial
-import comfy.model_management
-from segment_anything_hq.modeling import ImageEncoderViT, MaskDecoderHQ, PromptEncoder, Sam, TwoWayTransformer, TinyViT
 
+from segment_anything_hq.modeling import ImageEncoderViT, MaskDecoder, PromptEncoder, Sam, TwoWayTransformer, TinyViT
+import comfy.model_management
 
 def build_sam_vit_h(checkpoint=None):
     return _build_sam(
@@ -69,7 +69,7 @@ def build_sam_vit_t(checkpoint=None):
             input_image_size=(image_size, image_size),
             mask_in_chans=16,
             ),
-            mask_decoder=MaskDecoderHQ(
+            mask_decoder=MaskDecoder(
                     num_multimask_outputs=3,
                     transformer=TwoWayTransformer(
                     depth=2,
@@ -80,7 +80,6 @@ def build_sam_vit_t(checkpoint=None):
                 transformer_dim=prompt_embed_dim,
                 iou_head_depth=3,
                 iou_head_hidden_dim=256,
-                vit_dim=160,
             ),
             pixel_mean=[123.675, 116.28, 103.53],
             pixel_std=[58.395, 57.12, 57.375],
@@ -89,15 +88,11 @@ def build_sam_vit_t(checkpoint=None):
     mobile_sam.eval()
     if checkpoint is not None:
         with open(checkpoint, "rb") as f:
-            state_dict = torch.load(f, map_location="cpu")
-        info = mobile_sam.load_state_dict(state_dict, strict=False)
-        print(info)
-    for n, p in mobile_sam.named_parameters():
-        if 'hf_token' not in n and 'hf_mlp' not in n and 'compress_vit_feat' not in n and 'embedding_encoder' not in n and 'embedding_maskfeature' not in n:
-            p.requires_grad = False
+            state_dict = torch.load(f, map_location=comfy.model_management.get_torch_device())
+        mobile_sam.load_state_dict(state_dict)
     return mobile_sam
 
-sam_model_registry = {
+sam_model_registry_baseline = {
     "default": build_sam_vit_h,
     "vit_h": build_sam_vit_h,
     "vit_l": build_sam_vit_l,
@@ -138,7 +133,7 @@ def _build_sam(
             input_image_size=(image_size, image_size),
             mask_in_chans=16,
         ),
-        mask_decoder=MaskDecoderHQ(
+        mask_decoder=MaskDecoder(
             num_multimask_outputs=3,
             transformer=TwoWayTransformer(
                 depth=2,
@@ -149,7 +144,6 @@ def _build_sam(
             transformer_dim=prompt_embed_dim,
             iou_head_depth=3,
             iou_head_hidden_dim=256,
-            vit_dim=encoder_embed_dim,
         ),
         pixel_mean=[123.675, 116.28, 103.53],
         pixel_std=[58.395, 57.12, 57.375],
@@ -157,11 +151,6 @@ def _build_sam(
     sam.eval()
     if checkpoint is not None:
         with open(checkpoint, "rb") as f:
-            state_dict = torch.load(f , map_location="cpu")
-        info = sam.load_state_dict(state_dict, strict=False)
-        print(info)
-    for n, p in sam.named_parameters():
-        if 'hf_token' not in n and 'hf_mlp' not in n and 'compress_vit_feat' not in n and 'embedding_encoder' not in n and 'embedding_maskfeature' not in n:
-            p.requires_grad = False
-
+            state_dict = torch.load(f, map_location=comfy.model_management.get_torch_device())
+        sam.load_state_dict(state_dict)
     return sam

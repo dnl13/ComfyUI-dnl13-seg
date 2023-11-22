@@ -23,60 +23,6 @@ def load_dino_image(image_pil):
     image, _ = transform(image_pil, None)  # 3, h, w
     return image
 
-"""
-TODO: maybe add @ttulttul idea for better prompt masks to add | as prompt divider to run a for loop
-def get_grounding_output(model, image, caption, box_threshold, optimize_prompt_for_dino, device):
-    # send image to device where to proccess 
-    image = image.to(device)
-    
-    #check if we want prompt optmiziation = replace sd ","" with dino "." 
-    if optimize_prompt_for_dino is not False:
-        if caption.endswith(","):
-          caption = caption[:-1]
-        caption = caption.replace(",", ".")
-
-    # idea @ttulttul https://github.com/storyicon/comfyui_segment_anything/pull/16 TODO: Reimplement
-    if "|" in caption:
-        #
-        captions = split_captions(caption)
-        all_boxes = []
-        for caption in captions:
-            with torch.no_grad():
-                outputs = model(image[None], captions=[caption])
-            logits = outputs["pred_logits"].sigmoid()[0]  # (nq, 256)
-            boxes = outputs["pred_boxes"][0]  # (nq, 4)
-
-            # filter output
-            logits_filt = logits.clone()
-            boxes_filt = boxes.clone()
-            filt_mask = logits_filt.max(dim=1)[0] > box_threshold
-            logits_filt = logits_filt[filt_mask]  # num_filt, 256
-            boxes_filt = boxes_filt[filt_mask]  # num_filt, 4
-            all_boxes.append(boxes_filt.to(device))
-
-        # Concatenate all the boxes along the 0 dimension and return.
-        boxes_filt_concat = torch.cat(all_boxes, dim=0)
-        return boxes_filt_concat.to(device)
-
-    else:
-        caption = caption.lower()
-        caption = caption.strip()
-        if not caption.endswith("."):
-            caption = caption + "."
-        with torch.no_grad():
-            outputs = model(image[None], captions=[caption])
-        logits = outputs["pred_logits"].sigmoid()[0]  # (nq, 256)
-        boxes = outputs["pred_boxes"][0]  # (nq, 4)
-        # filter output
-        logits_filt = logits.clone()
-        boxes_filt = boxes.clone()
-        filt_mask = logits_filt.max(dim=1)[0] > box_threshold
-        logits_filt = logits_filt[filt_mask]  # num_filt, 256
-        boxes_filt = boxes_filt[filt_mask]  # num_filt, 4
-        return boxes_filt.to(device)
-
-"""
-
 def get_grounding_output(
         model, 
         image, 
@@ -212,6 +158,7 @@ def sam_segment(
     multimask,
     device
 ):  
+    sam_is_hq = getattr(sam_model, 'model_name', '').lower() == 'hq'
     if boxes.shape[0] == 0:
         return None
     
@@ -222,41 +169,60 @@ def sam_segment(
 
 
     transformed_boxes = predictor.transform.apply_boxes_torch( boxes, image_np.shape[:2]).to(device)
+
     """
     predictor.predict_torch Returns:
     (np.ndarray): The output masks in CxHxW format, where C is the number of masks, and (H, W) is the original image size.
     (np.ndarray): An array of length C containing the model's predictions for the quality of each mask.
     (np.ndarray): An array of shape CxHxW, where C is the number of masks and H=W=256. These low resolution logits can be passed to a subsequent iteration as mask input.
     """
-    _, _ , pre_proccesed_img = predictor.predict_torch(
-        point_coords=None,
-        point_labels=None,
-        boxes=transformed_boxes,
-        mask_input = None,
-        multimask_output=True,
-        return_logits=True,
-        hq_token_only=False
+
+    if sam_is_hq is True:
+        """
+        PREDICTION FOR HQ MODELS
+        """
+        _, _ , pre_proccesed_img = predictor.predict_torch(
+            point_coords=None,
+            point_labels=None,
+            boxes=transformed_boxes,
+            mask_input = None,
+            multimask_output=True,
+            return_logits=True,
+            hq_token_only=False
+            )
+        """
+        NOTE: maybe a second round for better mask quality ? 
+        _, _ , pre_proccesed_img2 = predictor.predict_torch(
+            point_coords=None,
+            point_labels=None,
+            boxes=transformed_boxes,
+            mask_input = pre_proccesed_img,
+            multimask_output=False,
+            return_logits=True,
+            hq_token_only=True 
         )
-    """
-    NOTE: maybe a second round for better mask quality ? 
-    _, _ , pre_proccesed_img2 = predictor.predict_torch(
-        point_coords=None,
-        point_labels=None,
-        boxes=transformed_boxes,
-        mask_input = pre_proccesed_img,
-        multimask_output=False,
-        return_logits=True,
-        hq_token_only=True 
-    )
-    """
-    masks, _ , _ = predictor.predict_torch(
-        point_coords=None,
-        point_labels=None,
-        boxes=transformed_boxes,
-        mask_input = pre_proccesed_img,
-        multimask_output=False,
-        hq_token_only=True
-    )
+        """
+        masks, _ , _ = predictor.predict_torch(
+            point_coords=None,
+            point_labels=None,
+            boxes=transformed_boxes,
+            mask_input = pre_proccesed_img,
+            multimask_output=False,
+            hq_token_only=True
+        )
+    else:
+        """
+        PREDICTION FOR NON-HQ MODELS
+        """
+        masks, _ , _ = predictor.predict_torch(
+            point_coords=None,
+            point_labels=None,
+            boxes=transformed_boxes,
+            return_logits=False,
+            mask_input = None,
+            multimask_output=False,
+            hq_token_only=False
+        )
     #masks = SamAutomaticMaskGenerator.postprocess_small_regions(mask_data=m,min_area=128, nms_thresh=0.5)
     """
     Removes small disconnected regions and holes in masks, then reruns

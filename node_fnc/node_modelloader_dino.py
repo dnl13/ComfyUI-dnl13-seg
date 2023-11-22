@@ -2,7 +2,7 @@ import os
 import torch
 
 import folder_paths
-
+import comfy.model_management
 from groundingdino.util.utils import clean_state_dict as local_groundingdino_clean_state_dict
 from groundingdino.util.slconfig import SLConfig as local_groundingdino_SLConfig
 from groundingdino.models import build_model as local_groundingdino_build_model
@@ -37,7 +37,7 @@ def load_groundingdino_model(model_name):
             groundingdino_model_list[model_name]["model_url"],
             groundingdino_model_dir,
         ),
-        map_location="cpu"
+        map_location=comfy.model_management.get_torch_device()
     )
             
     dino.load_state_dict(local_groundingdino_clean_state_dict(

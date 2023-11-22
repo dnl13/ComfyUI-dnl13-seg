@@ -100,6 +100,29 @@ Automatic Segmentations possible options:
 </blockquote>
 </details>
 
+<details>
+<summary><strong>Mask with prompt</strong></summary>
+
+<blockquote><br>
+
+#### `box_threshold` 
+marks the threashold at which confidence the image features are filtered. 
+lowering the threashold will result in more image feature. 
+***but be aware!! the lower the number the more vram will be consumed***
+
+
+#### `multimask`
+When activated, the node will give you multiple mask and images stacked on the batch_size of the tensor. 
+To make a selection later on please use the `BatchSelector-Node` until a selector inside this node is missing. 
+
+#### `clean_mask_holes`  `clean_mask_island` 
+`clean_mask_holes` and `clean_mask_island` can take on very large values,
+as this seems to reflect the pixel density of the mask. 64 as default value is mainly used to remove small parts of the mask. 
+**A value of 0 will therefore not make any corrections to the mask.**
+
+
+</blockquote>
+</details>
 
 <hr>
 
