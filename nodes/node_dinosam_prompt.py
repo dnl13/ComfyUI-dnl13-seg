@@ -45,11 +45,13 @@ class GroundingDinoSAMSegment:
                 "clean_mask_holes": ("INT", {
                     "default": 64,
                     "min": 0,
+                    "max":100000,
                     "step": 1
                 }),
                 "clean_mask_islands": ("INT", {
                     "default": 64,
                     "min": 0,
+                    "max":100000,
                     "step": 1
                 }),
                 "mask_blur": ("INT", {

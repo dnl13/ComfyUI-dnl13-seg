@@ -247,13 +247,20 @@ def sam_segment(
         output_images, output_masks = [], []
         
         #masks = masks.permute(1, 0, 2, 3).cpu().numpy()
-
         masks = masks.sum(dim=0, keepdim=True)
+
+        # workaround for better combined masks 
+        masks_tmp = torch.squeeze(masks, dim=(0, 1))
+        summed_mask_np = masks_tmp.cpu().numpy()
+        pil_tmp_masks_image = Image.fromarray((summed_mask_np * 255).astype(np.uint8), mode='L')
+        pil_tmp_masks_image.show()
+        masks = torch.from_numpy(np.array(pil_tmp_masks_image) / 255.0).unsqueeze(0).unsqueeze(0)
+
         height, width = masks.shape[2], masks.shape[3]
         masks = masks.squeeze(0)
 
         # convert mask
-        mask_np =  masks.permute( 1, 2, 0).cpu().numpy()# H.W.C
+        mask_np =  masks.permute( 1, 2, 0).cpu().numpy().astype(bool) # H.W.C
 
         # postproccess mask 
         mask_np, _ = remove_small_regions(mask=mask_np,area_thresh=clean_mask_holes,mode="holes" )

@@ -4,8 +4,6 @@ from PIL import Image
 import cv2
 
 
-
-
 def mask2cv(mask_np):
   """
   Requires:
@@ -38,7 +36,7 @@ def blur_mskcv(mask, blur_factor):
   if blur_factor % 2 == 0:  
     blur_factor += 1  
 
-  blured_mask = cv2.GaussianBlur(mask, (blur_factor, blur_factor), 0)
+  blured_mask = cv2.GaussianBlur(mask, (blur_factor, blur_factor), 15)
   return blured_mask
 
 def img_combine_mask_rgba(image_np_rgb,msk_cv2_blurred):

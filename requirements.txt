@@ -1,3 +1,4 @@
+segment-anything~=1.0
 segment-anything-hq~=0.3
 groundingdino-py~=0.4.0
 opencv-python==4.7.0.72
