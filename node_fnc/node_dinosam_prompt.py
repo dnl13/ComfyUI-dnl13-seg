@@ -28,15 +28,15 @@ def get_grounding_output(
         model, 
         image, 
         caption, 
-        box_threshold,       
+        lower_threshold,
+        upper_threshold,    
         optimize_prompt_for_dino, 
         device, 
-        #text_threshold, 
         with_logits=True
         ):
     
     # NOTE: not clear for what we can use text_threshold
-    text_threshold = box_threshold 
+    text_threshold = lower_threshold 
 
     #check if we want prompt optmiziation = replace sd ","" with dino "." 
     if optimize_prompt_for_dino is not False:
@@ -66,7 +66,7 @@ def get_grounding_output(
             # filter output
             logits_filt = logits.clone()
             boxes_filt = boxes.clone()
-            filt_mask = logits_filt.max(dim=1)[0] > box_threshold
+            filt_mask = (logits_filt.max(dim=1)[0] > lower_threshold) & (logits_filt.max(dim=1)[0] < upper_threshold)
             logits_filt = logits_filt[filt_mask]  # num_filt, 256
             boxes_filt = boxes_filt[filt_mask]  # num_filt, 4
             logits_filt.shape[0]
@@ -98,7 +98,7 @@ def get_grounding_output(
         # filter output
         logits_filt = logits.clone()
         boxes_filt = boxes.clone()
-        filt_mask = logits_filt.max(dim=1)[0] > box_threshold
+        filt_mask = (logits_filt.max(dim=1)[0] > lower_threshold) & (logits_filt.max(dim=1)[0] < upper_threshold)
         logits_filt = logits_filt[filt_mask]  # num_filt, 256
         boxes_filt = boxes_filt[filt_mask]  # num_filt, 4
         logits_filt.shape[0]
@@ -124,8 +124,8 @@ def groundingdino_predict(
     dino_model,
     image,
     prompt,
-    box_threshold,
-    #text_threshold,
+    lower_threshold,
+    upper_threshold,
     optimize_prompt_for_dino,
     device
 ):
@@ -134,8 +134,8 @@ def groundingdino_predict(
         dino_model, 
         dino_image, 
         prompt, 
-        box_threshold, 
-        #text_threshold, 
+        lower_threshold, 
+        upper_threshold, 
         optimize_prompt_for_dino, 
         device
         )
@@ -201,7 +201,7 @@ def sam_segment(
         #else:
         #    masks, _ , _ = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False)
         masks, _ , _ = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False)
-        
+
     """
     Removes small disconnected regions and holes in masks, then reruns
     box NMS to remove any new duplicates.

@@ -26,16 +26,18 @@ class GroundingDinoSAMSegment:
                 "grounding_dino_model": ('GROUNDING_DINO_MODEL', {}),
                 "image": ('IMAGE', {}),
                 "prompt": ("STRING", {"default": "arms, legs, eyes, hair, head","multiline": True}),
-                "box_threshold": ("FLOAT", {
+                "lower_threshold": ("FLOAT", {
                     "default": 0.3,
                     "min": 0,
                     "max": 1.0,
                     "step": 0.01
                 }),
-                #"text_threshold": ("FLOAT", {
-                #    "default": 0.3,
-                #    "step": 0.01
-                #}),
+                "upper_threshold": ("FLOAT", {
+                    "default": 0.98,
+                    "min": 0,
+                    "max": 1.0,
+                    "step": 0.01
+                }),
                 "multimask": ('BOOLEAN', {"default":False}),
                 "two_pass": ('BOOLEAN', {"default":False}),
                 "dedicated_device": (["Auto", "CPU", "GPU"], ),
@@ -77,8 +79,8 @@ class GroundingDinoSAMSegment:
             sam_model, 
             image, 
             prompt, 
-            box_threshold, 
-            # text_threshold,
+            lower_threshold, 
+            upper_threshold,
             two_pass,
             optimize_prompt_for_dino=False,
             multimask=False, 
@@ -120,8 +122,8 @@ class GroundingDinoSAMSegment:
                 grounding_dino_model,
                 item,
                 prompt,
-                box_threshold,
-                #text_threshold,
+                lower_threshold,
+                upper_threshold,
                 optimize_prompt_for_dino,
                 device
             )
