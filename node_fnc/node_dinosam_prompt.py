@@ -253,7 +253,6 @@ def sam_segment(
         masks_tmp = torch.squeeze(masks, dim=(0, 1))
         summed_mask_np = masks_tmp.cpu().numpy()
         pil_tmp_masks_image = Image.fromarray((summed_mask_np * 255).astype(np.uint8), mode='L')
-        pil_tmp_masks_image.show()
         masks = torch.from_numpy(np.array(pil_tmp_masks_image) / 255.0).unsqueeze(0).unsqueeze(0)
 
         height, width = masks.shape[2], masks.shape[3]
