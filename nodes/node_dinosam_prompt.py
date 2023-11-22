@@ -16,6 +16,31 @@ from ..utils.grounding_dino_utils import build_model, build_groundingdino
 
 from .node_modelloader_dinov1 import load_groundingdino_model, list_groundingdino_model
 
+import re
+def sort_result_to_prompt(phrases, masks, images, prompt):
+    # Split prompt by ',' or '|'
+    order_tokens = re.split(r',|\|', prompt)
+
+    # Create a mapping from order tokens to their positions
+    order_mapping = {token.strip(): i for i, token in enumerate(order_tokens)}
+
+    # Define a custom sorting key function
+    def custom_key(item):
+        key_match = re.match(r'([^\d]+)\((\d+\.\d+)\)', item)
+        if key_match:
+            key, value = key_match.groups()
+            return order_mapping.get(key.strip(), float('inf')), -float(value)
+        else:
+            # Handle the case where the format doesn't match
+            return float('inf'), float(item)
+
+    # Sort phrases, masks, images based on the custom key
+    sorted_data = sorted(zip(phrases, masks, images), key=lambda x: custom_key(x[0]))
+
+    # Unpack the sorted data into separate lists
+    sorted_phrases, sorted_masks, sorted_images = zip(*sorted_data)
+
+    return sorted_phrases, sorted_masks, sorted_images
 
 class GroundingDinoSAMSegment:
     @classmethod
@@ -131,11 +156,11 @@ class GroundingDinoSAMSegment:
             )
             
             print("\033[1;32m(dnl13-seg)\033[0m > phrase(confidence):", phrases)
-            
             # if nothing is detected set detection_errors
             if boxes.numel() == 0:
                 detection_errors = True
                 break
+            
 
             # create detailed masks with SAM depending on boxes found by dino
             (images, masks) = sam_segment(
@@ -150,10 +175,10 @@ class GroundingDinoSAMSegment:
                 two_pass,
                 device
             )
+            # sort output according to the prompt input
+            if multimask is True: 
+                _ , masks, images =  sort_result_to_prompt(phrases, masks, images , prompt)
             # add results to output
-
-            
-
             res_images.extend(images)
             res_masks.extend(masks)
         
@@ -162,7 +187,6 @@ class GroundingDinoSAMSegment:
             print("\033[1;32m(dnl13-seg)\033[0m The tensor 'boxes' is empty. No elements were found in the image search.")
             res_images.append(image)
             res_masks.append(empty_mask)
-
         # generate output
         res_images = torch.cat(res_images, dim=0)
         res_masks = torch.cat(res_masks, dim=0)
