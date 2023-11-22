@@ -7,7 +7,8 @@ from ..utils.collection import to_tensor
 import groundingdino.datasets.transforms as T
 from groundingdino.util.utils import get_phrases_from_posmap
 from segment_anything_hq import SamPredictor as SamPredictorHQ
-from segment_anything_hq.utils.amg import  remove_small_regions
+from segment_anything import SamPredictor
+from segment_anything_hq.utils.amg import  remove_small_regions,build_point_grid, batched_mask_to_box,uncrop_points
 
 from ..utils.image_processing import mask2cv, shrink_grow_mskcv, blur_mskcv, img_combine_mask_rgba , split_image_mask
 from ..utils.collection import split_captions
@@ -156,14 +157,23 @@ def sam_segment(
     mask_blur,
     mask_grow_shrink_factor,
     multimask,
+    two_pass,
     device
 ):  
-    sam_is_hq = getattr(sam_model, 'model_name', '').lower() == 'hq'
+
+    if hasattr(sam_model, 'model_name') and 'hq' in sam_model.model_name:
+        sam_is_hq = True
+        predictor = SamPredictorHQ(sam_model)
+    else:
+        sam_is_hq = False
+        predictor = SamPredictor(sam_model)
+
     if boxes.shape[0] == 0:
         return None
     
-    predictor = SamPredictorHQ(sam_model)
+    #predictor = SamPredictorHQ(sam_model)
     image_np = np.array(image)
+    height, width = image_np.shape[:2]
     image_np_rgb = image_np[..., :3]
     predictor.set_image(image_np_rgb)
 
@@ -178,52 +188,20 @@ def sam_segment(
     """
 
     if sam_is_hq is True:
-        """
-        PREDICTION FOR HQ MODELS
-        """
-        _, _ , pre_proccesed_img = predictor.predict_torch(
-            point_coords=None,
-            point_labels=None,
-            boxes=transformed_boxes,
-            mask_input = None,
-            multimask_output=True,
-            return_logits=True,
-            hq_token_only=False
-            )
-        """
-        NOTE: maybe a second round for better mask quality ? 
-        _, _ , pre_proccesed_img2 = predictor.predict_torch(
-            point_coords=None,
-            point_labels=None,
-            boxes=transformed_boxes,
-            mask_input = pre_proccesed_img,
-            multimask_output=False,
-            return_logits=True,
-            hq_token_only=True 
-        )
-        """
-        masks, _ , _ = predictor.predict_torch(
-            point_coords=None,
-            point_labels=None,
-            boxes=transformed_boxes,
-            mask_input = pre_proccesed_img,
-            multimask_output=False,
-            hq_token_only=True
-        )
+        if two_pass is True: 
+            _, _ , pre_logits = predictor.predict_torch(point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input = None, multimask_output=True, return_logits=True, hq_token_only=False)
+            masks, _ , _ = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input = pre_logits, multimask_output=False, hq_token_only=True)
+        else:
+            masks, _ , _ = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False, hq_token_only=True)
     else:
-        """
-        PREDICTION FOR NON-HQ MODELS
-        """
-        masks, _ , _ = predictor.predict_torch(
-            point_coords=None,
-            point_labels=None,
-            boxes=transformed_boxes,
-            return_logits=False,
-            mask_input = None,
-            multimask_output=False,
-            hq_token_only=False
-        )
-    #masks = SamAutomaticMaskGenerator.postprocess_small_regions(mask_data=m,min_area=128, nms_thresh=0.5)
+        # :NOTE - https://github.com/facebookresearch/segment-anything/issues/169 segement_anything got wrong floats instead of boolean mask_input=
+        #if two_pass is True: 
+        #    pre_masks, _ , _ = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False)
+        #    masks, _ , _ = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False)
+        #else:
+        #    masks, _ , _ = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False)
+        masks, _ , _ = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False)
+        
     """
     Removes small disconnected regions and holes in masks, then reruns
     box NMS to remove any new duplicates.

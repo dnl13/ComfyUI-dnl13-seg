@@ -110,6 +110,9 @@ marks the threashold at which confidence the image features are filtered.
 lowering the threashold will result in more image feature. 
 ***but be aware!! the lower the number the more vram will be consumed***
 
+#### `two_pass`
+will run two passen on HQ models for hopefully better mask results. 
+**This has no effect on non-HQ models for now** 
 
 #### `multimask`
 When activated, the node will give you multiple mask and images stacked on the batch_size of the tensor. 

@@ -37,6 +37,7 @@ class GroundingDinoSAMSegment:
                 #    "step": 0.01
                 #}),
                 "multimask": ('BOOLEAN', {"default":False}),
+                "two_pass": ('BOOLEAN', {"default":False}),
                 "dedicated_device": (["Auto", "CPU", "GPU"], ),
                 "optimize_prompt_for_dino":('BOOLEAN', {"default":True}),
                 "clean_mask_holes": ("INT", {
@@ -78,6 +79,7 @@ class GroundingDinoSAMSegment:
             prompt, 
             box_threshold, 
             # text_threshold,
+            two_pass,
             optimize_prompt_for_dino=False,
             multimask=False, 
             dedicated_device="Auto"
@@ -141,6 +143,7 @@ class GroundingDinoSAMSegment:
                 mask_blur,
                 mask_grow_shrink_factor,
                 multimask,
+                two_pass,
                 device
             )
             # add results to output
