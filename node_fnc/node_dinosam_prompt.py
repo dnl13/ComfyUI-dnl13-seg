@@ -4,7 +4,8 @@ from PIL import Image
 import cv2
 
 from ..utils.collection import to_tensor 
-import groundingdino.datasets.transforms as T
+#from ..libs.groundingdino.datasets.transforms import T
+import torchvision.transforms.v2 as T
 from ..libs.groundingdino.util.utils import get_phrases_from_posmap
 from ..libs.sam_hq.predictorHQ import SamPredictor as SamPredictorHQ
 from segment_anything import SamPredictor
@@ -16,7 +17,8 @@ from ..utils.collection import split_captions
 def load_dino_image(image_pil):
     transform = T.Compose(
         [
-            T.RandomResize([800], max_size=1333),
+            T.RandomResize((800), max_size=1333),
+            #T.RandomResize(800, max_size=1333),
             T.ToTensor(),
             T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
         ]

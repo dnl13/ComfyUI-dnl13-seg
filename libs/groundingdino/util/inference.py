@@ -7,11 +7,14 @@ import torch
 from PIL import Image
 from torchvision.ops import box_convert
 
-import local_groundingdino.datasets.transforms as T
-from local_groundingdino.models import build_model
-from local_groundingdino.util.misc import clean_state_dict
-from local_groundingdino.util.slconfig import SLConfig
-from local_groundingdino.util.utils import get_phrases_from_posmap
+
+#import ...groundingdino.datasets.transforms as T
+from ...groundingdino.datasets.transforms import RandomResize, Normalize,ToTensor, Compose
+import torchvision.transforms as T
+from ...groundingdino.models import build_model
+from ...groundingdino.util.misc import clean_state_dict
+from ...groundingdino.util.slconfig import SLConfig
+from ...groundingdino.util.utils import get_phrases_from_posmap
 
 # ----------------------------------------------------------------------------------------------------------------------
 # OLD API

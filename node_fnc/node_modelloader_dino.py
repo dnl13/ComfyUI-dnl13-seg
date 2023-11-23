@@ -7,9 +7,9 @@ import comfy.model_management
 #from groundingdino.util.slconfig import SLConfig as local_groundingdino_SLConfig
 #from groundingdino.models import build_model as local_groundingdino_build_model
 
-from ..libs.local_groundingdino.util.utils import clean_state_dict as local_groundingdino_clean_state_dict
-from ..libs.local_groundingdino.util.slconfig import SLConfig as local_groundingdino_SLConfig
-from ..libs.local_groundingdino.models import build_model as local_groundingdino_build_model
+from ..libs.groundingdino.util.utils import clean_state_dict as local_groundingdino_clean_state_dict
+from ..libs.groundingdino.util.slconfig import SLConfig as local_groundingdino_SLConfig
+from ..libs.groundingdino.models import build_model as local_groundingdino_build_model
 
 from ..utils.collection  import get_local_filepath, check_mps_device
 

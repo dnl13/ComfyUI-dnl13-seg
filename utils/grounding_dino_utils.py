@@ -31,8 +31,10 @@ from torch import nn
 from torchvision.ops.boxes import nms
 from transformers import AutoTokenizer, BertModel, BertTokenizer, RobertaModel, RobertaTokenizerFast
 
-from groundingdino.util import box_ops
-from groundingdino.util.misc import (
+
+#from groundingdino.util import box_ops
+
+from ..libs.groundingdino.util.misc import (
     NestedTensor,
     accuracy,
     get_world_size,
@@ -41,16 +43,15 @@ from groundingdino.util.misc import (
     is_dist_avail_and_initialized,
     nested_tensor_from_tensor_list,
 )
-from groundingdino.util.utils import get_phrases_from_posmap
-from groundingdino.util.visualizer import COCOVisualizer
-from groundingdino.util.vl_utils import create_positive_map_from_span
+from ..libs.groundingdino.util.utils import get_phrases_from_posmap
+#from groundingdino.util.visualizer import COCOVisualizer
+#from groundingdino.util.vl_utils import create_positive_map_from_span
+from ..libs.groundingdino.models.registry import MODULE_BUILD_FUNCS
+from ..libs.groundingdino.models.GroundingDINO.backbone import build_backbone
+from ..libs.groundingdino.models.GroundingDINO.transformer import build_transformer
+from ..libs.groundingdino.models.GroundingDINO.utils import MLP, ContrastiveEmbed, sigmoid_focal_loss
 
-from groundingdino.models.registry import MODULE_BUILD_FUNCS
-from groundingdino.models.GroundingDINO.backbone import build_backbone
-from groundingdino.models.GroundingDINO.transformer import build_transformer
-from groundingdino.models.GroundingDINO.utils import MLP, ContrastiveEmbed, sigmoid_focal_loss
-
-from groundingdino.models.GroundingDINO.bertwarper import (
+from ..libs.groundingdino.models.GroundingDINO.bertwarper import (
     BertModelWarper,
     generate_masks_with_special_tokens,
     generate_masks_with_special_tokens_and_transfer_map,
