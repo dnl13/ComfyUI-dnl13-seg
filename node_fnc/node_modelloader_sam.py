@@ -4,7 +4,8 @@ import folder_paths
 from ..utils.collection  import get_local_filepath
 #from sam_hq.build_sam_hq import sam_model_registry
 from ..utils.sam_build_baseline import sam_model_registry as sam_model_registry_baseline
-from ..utils.sam_build_hq import sam_model_registry
+#from ..utils.sam_build_hq import sam_model_registry
+from ..libs.sam_hq.build_sam_hq import sam_model_registry
 
 sam_model_dir = os.path.join(folder_paths.models_dir, "sams")
 sam_model_list = {

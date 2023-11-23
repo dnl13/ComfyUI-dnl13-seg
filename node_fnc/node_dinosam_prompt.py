@@ -5,10 +5,10 @@ import cv2
 
 from ..utils.collection import to_tensor 
 import groundingdino.datasets.transforms as T
-from groundingdino.util.utils import get_phrases_from_posmap
-from segment_anything_hq import SamPredictor as SamPredictorHQ
+from ..libs.groundingdino.util.utils import get_phrases_from_posmap
+from ..libs.sam_hq.predictorHQ import SamPredictor as SamPredictorHQ
 from segment_anything import SamPredictor
-from segment_anything_hq.utils.amg import  remove_small_regions,build_point_grid, batched_mask_to_box,uncrop_points
+from segment_anything.utils.amg import  remove_small_regions,build_point_grid, batched_mask_to_box,uncrop_points
 
 from ..utils.image_processing import mask2cv, shrink_grow_mskcv, blur_mskcv, img_combine_mask_rgba , split_image_mask
 from ..utils.collection import split_captions
