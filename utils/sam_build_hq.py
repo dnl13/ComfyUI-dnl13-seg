@@ -8,7 +8,15 @@ import torch
 
 from functools import partial
 import comfy.model_management
-from segment_anything_hq.modeling import ImageEncoderViT, MaskDecoderHQ, PromptEncoder, Sam, TwoWayTransformer, TinyViT
+#from segment_anything_hq.modeling import ImageEncoderViT, MaskDecoderHQ, PromptEncoder, Sam, TwoWayTransformer, TinyViT
+
+from ..libs.sam_hq.modeling.tiny_vit import TinyViT
+from ..libs.sam_hq.modeling.mask_decoder_hq import MaskDecoderHQ
+from ..libs.sam_hq.modeling.image_encoder import ImageEncoderViTHQ as ImageEncoderViT
+from segment_anything.modeling import PromptEncoder, Sam, TwoWayTransformer
+
+
+
 import comfy.model_management
 from .collection import check_mps_device
 

@@ -5,24 +5,24 @@ import cv2
 
 from ..utils.collection import to_tensor 
 #from ..libs.groundingdino.datasets.transforms import T
-import torchvision.transforms.v2 as T
+#import torchvision.transforms.v2 as T
+import torchvision.transforms.v2 as v2
 from ..libs.groundingdino.util.utils import get_phrases_from_posmap
 from ..libs.sam_hq.predictorHQ import SamPredictor as SamPredictorHQ
-from segment_anything import SamPredictor
+from ..libs.sam_hq.predictor import SamPredictor 
+#from segment_anything import SamPredictor
 from segment_anything.utils.amg import  remove_small_regions,build_point_grid, batched_mask_to_box,uncrop_points
 
 from ..utils.image_processing import mask2cv, shrink_grow_mskcv, blur_mskcv, img_combine_mask_rgba , split_image_mask
 from ..utils.collection import split_captions
 
 def load_dino_image(image_pil):
-    transform = T.Compose(
-        [
-            T.RandomResize((800), max_size=1333),
-            #T.RandomResize(800, max_size=1333),
-            T.ToTensor(),
-            T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-        ]
-    )
+    transform = v2.Compose([
+        v2.RandomResize(800, max_size=1333),
+        v2.ToImage(),
+        v2.ToDtype(torch.float32, scale=True),
+        v2.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+    ])
     image, _ = transform(image_pil, None)  # 3, h, w
     return image
 
@@ -170,7 +170,6 @@ def sam_segment(
     else:
         sam_is_hq = False
         predictor = SamPredictor(sam_model)
-
     if boxes.shape[0] == 0:
         return None
     
@@ -193,6 +192,7 @@ def sam_segment(
     if sam_is_hq is True:
         if two_pass is True: 
             _, _ , pre_logits = predictor.predict_torch(point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input = None, multimask_output=True, return_logits=True, hq_token_only=False)
+            pre_logits = torch.mean(pre_logits, dim=1, keepdim=True)
             masks, _ , _ = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input = pre_logits, multimask_output=False, hq_token_only=True)
         else:
             masks, _ , _ = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False, hq_token_only=True)

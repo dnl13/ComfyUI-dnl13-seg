@@ -7,7 +7,7 @@ import random
 
 import PIL
 import torch
-#import torchvision.transforms as T
+import torchvision.transforms as T
 import torchvision.transforms.functional as F
 
 from ...groundingdino.util.box_ops import box_xyxy_to_cxcywh
@@ -259,11 +259,6 @@ class RandomSelect(object):
         if random.random() < self.p:
             return self.transforms1(img, target)
         return self.transforms2(img, target)
-
-
-class ToTensor(object):
-    def __call__(self, img, target):
-        return F.to_tensor(img), target
 
 
 class RandomErasing(object):

@@ -8,9 +8,8 @@ from PIL import Image
 from torchvision.ops import box_convert
 
 
-#import ...groundingdino.datasets.transforms as T
-from ...groundingdino.datasets.transforms import RandomResize, Normalize,ToTensor, Compose
 import torchvision.transforms as T
+import torchvision.transforms.v2 as v2
 from ...groundingdino.models import build_model
 from ...groundingdino.util.misc import clean_state_dict
 from ...groundingdino.util.slconfig import SLConfig
@@ -39,13 +38,13 @@ def load_model(model_config_path: str, model_checkpoint_path: str, device: str =
 
 
 def load_image(image_path: str) -> Tuple[np.array, torch.Tensor]:
-    transform = T.Compose(
-        [
-            T.RandomResize([800], max_size=1333),
-            T.ToTensor(),
-            T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-        ]
-    )
+    transform = v2.Compose([
+        v2.RandomResize(800, max_size=1333),
+        v2.ToImage(),
+        v2.ToDtype(torch.float32, scale=True),
+        v2.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+    ])
+    #image, _ = transform(image_pil, None)  # 3, h, w
     image_source = Image.open(image_path).convert("RGB")
     image = np.asarray(image_source)
     image_transformed, _ = transform(image_source, None)
@@ -213,13 +212,12 @@ class Model:
 
     @staticmethod
     def preprocess_image(image_bgr: np.ndarray) -> torch.Tensor:
-        transform = T.Compose(
-            [
-                T.RandomResize([800], max_size=1333),
-                T.ToTensor(),
-                T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-            ]
-        )
+        transform = v2.Compose([
+            v2.RandomResize(800, max_size=1333),
+            v2.ToImage(),
+            v2.ToDtype(torch.float32, scale=True),
+            v2.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        ])
         image_pillow = Image.fromarray(cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB))
         image_transformed, _ = transform(image_pillow, None)
         return image_transformed

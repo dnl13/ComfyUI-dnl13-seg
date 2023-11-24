@@ -37,14 +37,13 @@ def load_sam_model(model_name ):
     sam_checkpoint_path = get_local_filepath(sam_model_list[model_name]["model_url"], sam_model_dir)
     model_file_name = os.path.basename(sam_checkpoint_path)
     model_type = model_file_name.split('.')[0]
-
     if 'hq' not in model_type:
         model_type = '_'.join(model_type.split('_')[:-1])
         model_type = model_type.replace("sam_", "")
         sam = sam_model_registry_baseline[model_type](checkpoint=sam_checkpoint_path)
         sam.model_name = model_file_name
     else:
-        model_type = model_type.replace("sam_hq_", "")
+        #model_type = model_type.replace("sam_hq_", "")
         sam = sam_model_registry[model_type](checkpoint=sam_checkpoint_path)
         sam.model_name = model_file_name
 

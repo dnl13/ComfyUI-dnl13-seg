@@ -7,11 +7,10 @@ from urllib.parse import urlparse
 
 import folder_paths
 import comfy.model_management
-from torchvision.transforms import ToTensor
 from torch.hub import download_url_to_file
 from .image_processing import split_image_mask
-
-to_tensor = ToTensor()
+from torchvision.transforms.v2 import Compose, ToImage, ToDtype
+to_tensor = Compose([ToImage(), ToDtype(torch.float32, scale=True)])
 
 def to_numpy(tensor):
     return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
