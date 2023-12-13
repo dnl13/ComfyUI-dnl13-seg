@@ -191,12 +191,27 @@ def groundingdino_predict_new(
 
     image = image.convert("RGB")
     #image = change_contrast(image,-100)
-    image_np_tmp = np.asarray(image)
+
+    # Manuelle Skalierung auf eine maximale Seitenlänge von 800 Pixel
+    max_size = 800
+    width, height = image.size
+    aspect_ratio = width / height
+
+    if height > width:
+        new_height = max_size
+        new_width = int(max_size * aspect_ratio)
+    else:
+        new_width = max_size
+        new_height = int(max_size / aspect_ratio)
+
+    resized_image = image.resize((new_width, new_height))
+
+    image_np_tmp = np.asarray(resized_image)
     image_np = np.copy(image_np_tmp)
     transform = v2.Compose(
         [
-            v2.RandomResize(min_size=800, max_size=1333),
-            v2.Resize((800, 800)),
+            #v2.RandomResize(min_size=800, max_size=1333),
+            v2.Resize(800),
             v2.ToImage(),
             v2.ToDtype(torch.float32, scale=True),
             #
