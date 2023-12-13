@@ -60,7 +60,7 @@ sam_model_registry = {
 }
 
 
-def _load_sam_checkpoint(sam: Sam, checkpoint=None):
+def _load_sam_checkpoint(sam: Sam, checkpoint=None, use_reentrant=False):
     sam.eval()
     if checkpoint is not None:
         with open(checkpoint, "rb") as f:
@@ -119,7 +119,7 @@ def _build_sam_hq(
         pixel_mean=[123.675, 116.28, 103.53],
         pixel_std=[58.395, 57.12, 57.375],
     )
-    return _load_sam_checkpoint(sam, checkpoint)
+    return _load_sam_checkpoint(sam, checkpoint, use_reentrant=False)
 
 
 def _build_mobile_sam(checkpoint=None):
@@ -163,4 +163,4 @@ def _build_mobile_sam(checkpoint=None):
         pixel_mean=[123.675, 116.28, 103.53],
         pixel_std=[58.395, 57.12, 57.375],
     )
-    return _load_sam_checkpoint(mobile_sam, checkpoint)
+    return _load_sam_checkpoint(mobile_sam, checkpoint, use_reentrant=False)
