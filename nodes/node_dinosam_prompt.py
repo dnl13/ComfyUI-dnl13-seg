@@ -3,7 +3,7 @@ import numpy as np
 from PIL import Image
 
 import comfy.model_management
-from ..node_fnc.node_dinosam_prompt import sam_segment, groundingdino_predict
+from ..node_fnc.node_dinosam_prompt import sam_segment, groundingdino_predict, groundingdino_predict_new
 from ..utils.collection import get_local_filepath, check_mps_device
 import os
 import folder_paths
@@ -51,15 +51,15 @@ class GroundingDinoSAMSegment:
                 "grounding_dino_model": ('GROUNDING_DINO_MODEL', {}),
                 "image": ('IMAGE', {}),
                 "prompt": ("STRING", {"default": "arms, legs, eyes, hair, head","multiline": True}),
-                "lower_threshold": ("FLOAT", {
-                    "default": 0.3,
-                    "min": 0,
+                "box_threshold": ("FLOAT", {
+                    "default": 0.35,
+                    "min": 0.01,
                     "max": 1.0,
                     "step": 0.01
                 }),
-                "upper_threshold": ("FLOAT", {
-                    "default": 0.98,
-                    "min": 0,
+                "filter_threshold": ("FLOAT", {
+                    "default": 1,
+                    "min": 0.02,
                     "max": 1.0,
                     "step": 0.01
                 }),
@@ -94,7 +94,8 @@ class GroundingDinoSAMSegment:
         }
     CATEGORY = "dnl13"
     FUNCTION = "main"
-    RETURN_TYPES = ("IMAGE", "MASK")
+    RETURN_TYPES = ("IMAGE", "MASK", "IMAGE")
+    RETURN_NAMES = ("RGBA_Images", "Masks", "Image Detections Debug (rgb)")
 
     def main(
             self, 
@@ -106,8 +107,8 @@ class GroundingDinoSAMSegment:
             sam_model, 
             image, 
             prompt, 
-            lower_threshold, 
-            upper_threshold,
+            box_threshold, 
+            filter_threshold,
             two_pass,
             optimize_prompt_for_dino=False,
             multimask=False, 
@@ -139,6 +140,7 @@ class GroundingDinoSAMSegment:
         # empty output
         res_images = []
         res_masks = []
+        res_debug_images = []
         #
         detection_errors = False
         #
@@ -146,16 +148,16 @@ class GroundingDinoSAMSegment:
             item = Image.fromarray(np.clip(255. * item.cpu().numpy(), 0, 255).astype(np.uint8)).convert('RGBA')
             # run dino for prompt guides segmentation
 
-            boxes, phrases = groundingdino_predict(
+            boxes, phrases, logits, debug_image = groundingdino_predict_new(
                 grounding_dino_model,
                 item,
                 prompt,
-                lower_threshold,
-                upper_threshold,
+                box_threshold,
+                filter_threshold,
                 optimize_prompt_for_dino,
                 device
             )
-            
+
             # if nothing is detected set detection_errors
             if boxes.numel() == 0:
                 detection_errors = True
@@ -179,23 +181,34 @@ class GroundingDinoSAMSegment:
             if multimask is True: 
                 phrases , masks, images =  sort_result_to_prompt(phrases, masks, images , prompt)
 
-            print("\033[1;32m(dnl13-seg)\033[0m > phrase(confidence):", phrases)
+            
+            # Formated Print
+            if isinstance(logits, torch.Tensor):
+                logits = logits.tolist()
+            formatted_phrases = [f"{phrase} ({logit:.4f})" for phrase, logit in zip(phrases, logits)]
+            formatted_output = ', '.join(formatted_phrases)
+            print(f"\033[1;32m(dnl13-seg)\033[0m > phrase(confidence): {formatted_output}")
+
             # add results to output
             res_images.extend(images)
             res_masks.extend(masks)
+            res_debug_images.extend(debug_image)
         
         # if nothing was detected just send simple input image and empty mask
         if detection_errors is not False:
             print("\033[1;32m(dnl13-seg)\033[0m The tensor 'boxes' is empty. No elements were found in the image search.")
             res_images.append(image)
             res_masks.append(empty_mask)
+            res_debug_images.extend(image)
+
         # generate output
         res_images = torch.cat(res_images, dim=0)
         res_masks = torch.cat(res_masks, dim=0)
+        #res_debug_images = torch.cat(debug_image, dim=0)
 
         # fix for ComfyUI Mask format :MASK torch.Tensor with shape [H,W] or [B,C,H,W]
         if multimask:
             res_masks = res_masks.unsqueeze_(dim=1) 
       
-        return (res_images, res_masks, )
+        return (res_images, res_masks, res_debug_images, )
 

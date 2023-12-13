@@ -1,13 +1,15 @@
 import torch
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 import cv2
 
 from ..utils.collection import to_tensor 
 #from ..libs.groundingdino.datasets.transforms import T
 #import torchvision.transforms.v2 as T
 import torchvision.transforms.v2 as v2
+import torchvision.transforms as transforms
 from ..libs.groundingdino.util.utils import get_phrases_from_posmap
+from ..libs.groundingdino.util.inference import Model, predict
 from ..libs.sam_hq.predictorHQ import SamPredictor as SamPredictorHQ
 from ..libs.sam_hq.predictor import SamPredictor 
 #from segment_anything import SamPredictor
@@ -151,6 +153,113 @@ def groundingdino_predict(
     return boxes_filt.to(device), pred_phrases
 
 
+def change_contrast(img, level):
+    factor = (259 * (level + 255)) / (255 * (259 - level))
+    def contrast(c):
+        return 128 + factor * (c - 128)
+    return img.point(contrast)
+
+def groundingdino_predict_new(
+    dino_model,
+    image,
+    prompt,
+    box_threshold,
+    filter_threshold,
+    optimize_prompt_for_dino,
+    device
+):
+    """
+    dino_model = model 
+    image = pil image
+    """
+    dino_image = load_dino_image(image.convert("RGB")) 
+
+    dino_model = dino_model.to(device)
+    dino_image = dino_image.to(device)
+
+    #check if we want prompt optmiziation = replace sd ","" with dino "." 
+    if optimize_prompt_for_dino is not False:
+        if prompt.endswith(","):
+          prompt = prompt[:-1]
+        prompt = prompt.replace(",", ".")
+
+    prompt = prompt.lower()
+    prompt = prompt.strip()
+    if not prompt.endswith("."):
+        prompt = prompt + "."
+
+
+    image = image.convert("RGB")
+    #image = change_contrast(image,-100)
+    image_np_tmp = np.asarray(image)
+    image_np = np.copy(image_np_tmp)
+    transform = v2.Compose(
+        [
+            v2.RandomResize(min_size=800, max_size=1333),
+            v2.Resize((800, 800)),
+            v2.ToImage(),
+            v2.ToDtype(torch.float32, scale=True),
+            #
+            v2.RandomAdjustSharpness(sharpness_factor=2),
+            v2.RandomAutocontrast(),
+            #
+            v2.AutoAugment(v2.AutoAugmentPolicy.IMAGENET),
+            v2.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        ]
+    )
+    image_transformed, _ = transform(image_np, None)
+
+    # image_transformed in ein NumPy-Array umwandeln
+    image_transformed_np = image_transformed.cpu().numpy()
+    image_transformed_np = (image_transformed_np * 255).astype(np.uint8).transpose(1, 2, 0)
+    pil_image_transformed = Image.fromarray(image_transformed_np)
+    #pil_image_transformed.show() #debug image which is going into the dino model
+
+
+    with torch.no_grad():
+        boxes, logits, phrases = predict(dino_model ,image_transformed, caption=prompt,  text_threshold=box_threshold, box_threshold=box_threshold )
+
+    width, height = image.size
+    detections = Model.post_process_result(source_h=height, source_w=width, boxes=boxes, logits=logits)
+
+    # Konvertiere Tensoren in NumPy-Arrays
+    boxes_np = boxes.numpy()
+    logits_np = logits.numpy()
+    tensor_xyxy_np = np.array(detections.xyxy)
+
+    # Filtere basierend auf einer Bedingung
+    #condition = np.logical_and(box_threshold < logits_np, logits_np < 0.2)
+    condition = np.logical_and(0.1 < logits_np, logits_np < filter_threshold)
+    filtered_boxes_np = boxes_np[condition]
+    filtered_logits_np = logits_np[condition]
+    filtered_tensor_xyxy_np = tensor_xyxy_np[condition]
+    filtered_phrases = [phrase for i, phrase in enumerate(phrases) if condition[i]]
+
+    # Konvertiere NumPy-Arrays zurück zu Tensoren
+    filtered_boxes = torch.tensor(filtered_boxes_np)
+    filtered_logits = torch.tensor(filtered_logits_np)
+    filtered_tensor_xyxy = torch.tensor(filtered_tensor_xyxy_np)
+
+    # Zeige das Bild mit den Bounding Boxen an
+    # image.show()
+
+    # Zeichne die Bounding Boxen auf das Bild
+    draw = ImageDraw.Draw(image)
+    for bbox, conf in zip(filtered_tensor_xyxy, filtered_logits):
+        bbox = tuple(map(int, bbox))
+        draw.rectangle(bbox, outline="red", width=2)
+        draw.text((bbox[0], bbox[1]), f"Confidence: {conf:.2f}", fill="red")
+
+    # Konvertiere das Bild in einen Tensor
+    transform = transforms.ToTensor()
+    tensor_image = transform(image)
+    tensor_image_expanded = tensor_image.unsqueeze(0)
+    tensor_image_formated = tensor_image_expanded.permute(0, 2, 3, 1)
+
+
+    return filtered_tensor_xyxy, filtered_phrases, filtered_logits, tensor_image_formated
+
+
 def sam_segment(
     sam_model,
     image,
@@ -203,7 +312,10 @@ def sam_segment(
         #    masks, _ , _ = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False)
         #else:
         #    masks, _ , _ = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False)
-        masks, _ , _ = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False)
+        masks, _ , logits = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False)
+        #print("type >>>>>>>>>", type(logits))
+        #print("shape >>>>>>>>>", logits.shape)
+        #masks, _ , _ = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=logits, multimask_output=False)
 
     """
     Removes small disconnected regions and holes in masks, then reruns
@@ -284,7 +396,6 @@ def sam_segment(
         rgb_ts = rgb_ts.unsqueeze(0)
         rgb_ts = rgb_ts.permute(0, 2, 3, 1)    
 
-  
         output_images.append(rgb_ts)
         output_masks.append(msk)
 
