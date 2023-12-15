@@ -8,6 +8,8 @@ from ..utils.collection import to_tensor
 #import torchvision.transforms.v2 as T
 import torchvision.transforms.v2 as v2
 import torchvision.transforms as transforms
+import torchvision.transforms.functional as TF
+import random
 from ..libs.groundingdino.util.utils import get_phrases_from_posmap
 from ..libs.groundingdino.util.inference import Model, predict
 from ..libs.sam_hq.predictorHQ import SamPredictor as SamPredictorHQ
@@ -28,6 +30,7 @@ def load_dino_image(image_pil):
     image, _ = transform(image_pil, None)  # 3, h, w
     return image
 
+"""
 def get_grounding_output(
         model, 
         image, 
@@ -124,58 +127,191 @@ def get_grounding_output(
 
 
     return boxes_filt.to(device), pred_phrases
+"""
 
-def groundingdino_predict(
-    dino_model,
-    image,
-    prompt,
-    lower_threshold,
-    upper_threshold,
-    optimize_prompt_for_dino,
-    device
-):
-    dino_image = load_dino_image(image.convert("RGB"))
-    boxes_filt, pred_phrases = get_grounding_output(
-        dino_model, 
-        dino_image, 
-        prompt, 
-        lower_threshold, 
-        upper_threshold, 
-        optimize_prompt_for_dino, 
-        device
+
+
+
+def resize_mask(
+        self, ref_mask: np.ndarray, longest_side: int = 256
+    ) -> tuple[np.ndarray, int, int]:
+        """
+        Resize an image to have its longest side equal to the specified value.
+
+        Args:
+            ref_mask (np.ndarray): The image to be resized.
+            longest_side (int, optional): The length of the longest side after resizing. Default is 256.
+
+        Returns:
+            tuple[np.ndarray, int, int]: The resized image and its new height and width.
+        """
+        height, width = ref_mask.shape[:2]
+        if height > width:
+            new_height = longest_side
+            new_width = int(width * (new_height / height))
+        else:
+            new_width = longest_side
+            new_height = int(height * (new_width / width))
+
+        return (
+            cv2.resize(
+                ref_mask, (new_width, new_height), interpolation=cv2.INTER_NEAREST
+            ),
+            new_height,
+            new_width,
         )
 
-    H, W = image.size[1], image.size[0]
-    for i in range(boxes_filt.size(0)):
-        boxes_filt[i] = boxes_filt[i] * torch.Tensor([W, H, W, H]).to(device)
-        boxes_filt[i][:2] -= boxes_filt[i][2:] / 2
-        boxes_filt[i][2:] += boxes_filt[i][:2]
-    return boxes_filt.to(device), pred_phrases
+def pad_mask(
+        ref_mask: np.ndarray,
+        new_height: int,
+        new_width: int,
+        pad_all_sides: bool = False,
+    ) -> np.ndarray:
+        """
+        Add padding to an image to make it square.
+
+        Args:
+            ref_mask (np.ndarray): The image to be padded.
+            new_height (int): The height of the image after resizing.
+            new_width (int): The width of the image after resizing.
+            pad_all_sides (bool, optional): Whether to pad all sides of the image equally. If False, padding will be added to the bottom and right sides. Default is False.
+
+        Returns:
+            np.ndarray: The padded image.
+        """
+        pad_height = 256 - new_height
+        pad_width = 256 - new_width
+        if pad_all_sides:
+            padding = (
+                (pad_height // 2, pad_height - pad_height // 2),
+                (pad_width // 2, pad_width - pad_width // 2),
+            )
+        else:
+            padding = ((0, pad_height), (0, pad_width))
+
+        # Padding value defaults to '0' when the `np.pad`` mode is set to 'constant'.
+        return np.pad(ref_mask, padding, mode="constant")
+
+def reference_to_sam_mask( ref_mask: np.ndarray, threshold: int = 127, pad_all_sides: bool = False ) -> np.ndarray:
+        """
+        Convert a grayscale mask to a binary mask, resize it to have its longest side equal to 256, and add padding to make it square.
+
+        Args:
+            ref_mask (np.ndarray): The grayscale mask to be processed.
+            threshold (int, optional): The threshold value for the binarization. Default is 127.
+            pad_all_sides (bool, optional): Whether to pad all sides of the image equally. If False, padding will be added to the bottom and right sides. Default is False.
+
+        Returns:
+            np.ndarray: The processed binary mask.
+        """
+
+        # Convert a grayscale mask to a binary mask.
+        # Values over the threshold are set to 1, values below are set to -1.
+        ref_mask = np.clip((ref_mask > threshold) * 2 - 1, -1, 1)
+
+        # Resize to have the longest side 256.
+        resized_mask, new_height, new_width = resize_mask(ref_mask)
+
+        # Add padding to make it square.
+        square_mask = pad_mask(resized_mask, new_height, new_width, pad_all_sides)
+
+        # Expand SAM mask's dimensions to 1xHxW (1x256x256).
+        return np.expand_dims(square_mask, axis=0)
 
 
-def change_contrast(img, level):
-    factor = (259 * (level + 255)) / (255 * (259 - level))
-    def contrast(c):
-        return 128 + factor * (c - 128)
-    return img.point(contrast)
+def denormalize_bbox(bbox, image_width, image_height):
+    cx, cy, w, h = bbox
 
-def groundingdino_predict_new(
-    dino_model,
-    image,
-    prompt,
-    box_threshold,
-    filter_threshold,
-    optimize_prompt_for_dino,
-    device
-):
-    """
-    dino_model = model 
-    image = pil image
-    """
-    dino_image = load_dino_image(image.convert("RGB")) 
+    # Entnormalisiere Width und Height
+    w *= image_width
+    h *= image_height
 
+    # Entnormalisiere cx und cy
+    cx = cx * image_width + 0.5  # 0.5, weil cxcywh-Format zentriert ist
+    cy = cy * image_height + 0.5
+
+    # Berechne xmin, ymin, xmax, ymax
+    xmin = int(cx - w / 2)
+    ymin = int(cy - h / 2)
+    xmax = int(cx + w / 2)
+    ymax = int(cy + h / 2)
+
+    return xmin, ymin, xmax, ymax
+
+
+def xyxy_to_cxcywh(xyxy):
+    xmin, ymin, xmax, ymax = xyxy
+    w = xmax - xmin
+    h = ymax - ymin
+    cx = xmin + w / 2
+    cy = ymin + h / 2
+    return cx, cy, w, h
+
+
+def resize_boxes(boxes_tensor, image_width, image_height, scale_factor=0.2):
+    # Extrahiere die Werte aus dem Tensor
+    cx, cy, w, h = boxes_tensor[0]
+
+    # Berechne die Änderungen in Breite und Höhe um den Skalierungsfaktor
+    delta_w = w * scale_factor / 2
+    delta_h = h * scale_factor / 2
+
+    # Neues Zentrum der Box nach der Skalierung
+    new_cx = cx
+    new_cy = cy
+
+    # Berechne die neuen Werte für Breite und Höhe
+    new_width = w + 2 * delta_w
+    new_height = h + 2 * delta_h
+
+    # Überprüfe, ob die skalierte Box die Grenzen des Originalbildes überschreitet
+    max_width = image_width - cx
+    max_height = image_height - cy
+
+    if new_width > max_width:
+        new_width = max_width
+
+    if new_height > max_height:
+        new_height = max_height
+
+    # Erstelle die neuen Boxen mit den veränderten Werten
+    new_boxes_tensor = torch.tensor([[new_cx, new_cy, new_width, new_height]])
+
+    return new_boxes_tensor
+
+
+
+def crop_image(image_transformed, box):
+    xmin, ymin, xmax, ymax = box
+
+    # Berechne die Breite und Höhe des Bildausschnitts
+    width = xmax - xmin
+    height = ymax - ymin
+
+    # Schneide den Bildausschnitt aus dem transformierten Bild aus
+    cropped_image = TF.crop(image_transformed, ymin, xmin, height, width)
+
+    return cropped_image
+
+# Passe die neuen Boxen auf die ursprünglichen Bildabmessungen an
+def scale_boxes(new_boxes, original_box):
+    # Extrahiere die Werte aus dem ursprünglichen Boxen-Tensor
+    cx, cy, w, h = original_box[0]
+
+    # Passe die neuen Boxen auf die ursprünglichen Dimensionen an
+    scaled_boxes = new_boxes * torch.tensor([[w, h, w, h]])
+
+    # Zentriere die Boxen an der ursprünglichen Position
+    scaled_boxes[:, :2] += torch.tensor([[cx - w / 2, cy - h / 2]])
+
+    return scaled_boxes
+
+def groundingdino_predict(dino_model,image, prompt,box_threshold,upper_confidence_threshold, lower_confidence_threshold, optimize_prompt_for_dino, device ):
+    
+    #dino_image = load_dino_image(image.convert("RGB")) 
+    #dino_image = image.convert("RGB")
     dino_model = dino_model.to(device)
-    dino_image = dino_image.to(device)
+    #dino_image = dino_image.to(device)
 
     #check if we want prompt optmiziation = replace sd ","" with dino "." 
     if optimize_prompt_for_dino is not False:
@@ -190,90 +326,118 @@ def groundingdino_predict_new(
 
 
     image = image.convert("RGB")
-    #image = change_contrast(image,-100)
+
 
     # Manuelle Skalierung auf eine maximale Seitenlänge von 800 Pixel
     max_size = 800
     width, height = image.size
     aspect_ratio = width / height
 
-    if height > width:
-        new_height = max_size
-        new_width = int(max_size * aspect_ratio)
-    else:
-        new_width = max_size
-        new_height = int(max_size / aspect_ratio)
+    if max(height, width) > max_size:
+        if height > width:
+            new_height = max_size
+            new_width = int(max_size * aspect_ratio)
+        else:
+            new_width = max_size
+            new_height = int(max_size / aspect_ratio)
 
-    resized_image = image.resize((new_width, new_height))
+        resized_image = image.resize((new_width, new_height))
+    else:
+        resized_image = image
 
     image_np_tmp = np.asarray(resized_image)
     image_np = np.copy(image_np_tmp)
+    # Note: this is just a mess an led to missarable detection. 
     transform = v2.Compose(
         [
             #v2.RandomResize(min_size=800, max_size=1333),
-            v2.Resize(800),
+            #v2.Resize(800),
             v2.ToImage(),
             v2.ToDtype(torch.float32, scale=True),
             #
-            v2.RandomAdjustSharpness(sharpness_factor=2),
-            v2.RandomAutocontrast(),
+            #v2.RandomAdjustSharpness(sharpness_factor=2),
+            #v2.RandomAutocontrast(),
             #
-            v2.AutoAugment(v2.AutoAugmentPolicy.IMAGENET),
-            v2.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+            #v2.AutoAugment(v2.AutoAugmentPolicy.IMAGENET),
+            #v2.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
         ]
     )
     image_transformed, _ = transform(image_np, None)
+    image_transformed_new = image_transformed.clone().detach().requires_grad_(True)
 
     # image_transformed in ein NumPy-Array umwandeln
-    image_transformed_np = image_transformed.cpu().numpy()
+    image_transformed_np = image_transformed_new.cpu().numpy()
     image_transformed_np = (image_transformed_np * 255).astype(np.uint8).transpose(1, 2, 0)
     pil_image_transformed = Image.fromarray(image_transformed_np)
     #pil_image_transformed.show() #debug image which is going into the dino model
 
-
     with torch.no_grad():
-        boxes, logits, phrases = predict(dino_model ,image_transformed, caption=prompt,  text_threshold=box_threshold, box_threshold=box_threshold )
+        boxes, logits, phrases = predict(dino_model, image_transformed.to(device), caption=prompt, text_threshold=box_threshold, box_threshold=box_threshold)
 
-    width, height = image.size
-    detections = Model.post_process_result(source_h=height, source_w=width, boxes=boxes, logits=logits)
-
-    # Konvertiere Tensoren in NumPy-Arrays
     boxes_np = boxes.numpy()
     logits_np = logits.numpy()
-    tensor_xyxy_np = np.array(detections.xyxy)
 
     # Filtere basierend auf einer Bedingung
-    #condition = np.logical_and(box_threshold < logits_np, logits_np < 0.2)
-    condition = np.logical_and(0.1 < logits_np, logits_np < filter_threshold)
+    condition = np.logical_and(lower_confidence_threshold < logits_np, logits_np < upper_confidence_threshold)
     filtered_boxes_np = boxes_np[condition]
     filtered_logits_np = logits_np[condition]
-    filtered_tensor_xyxy_np = tensor_xyxy_np[condition]
     filtered_phrases = [phrase for i, phrase in enumerate(phrases) if condition[i]]
+
+    tensor_xyxy_np = Model.post_process_result(source_h=height, source_w=width, boxes=boxes, logits=logits).xyxy
+    filtered_tensor_xyxy_np = tensor_xyxy_np[condition]
 
     # Konvertiere NumPy-Arrays zurück zu Tensoren
     filtered_boxes = torch.tensor(filtered_boxes_np)
     filtered_logits = torch.tensor(filtered_logits_np)
     filtered_tensor_xyxy = torch.tensor(filtered_tensor_xyxy_np)
 
-    # Zeige das Bild mit den Bounding Boxen an
-    # image.show()
-
-    # Zeichne die Bounding Boxen auf das Bild
-    draw = ImageDraw.Draw(image)
-    for bbox, conf in zip(filtered_tensor_xyxy, filtered_logits):
+    # draw Bounding Boxes to image for user debug
+    duplicate_image = image.copy()
+    draw = ImageDraw.Draw(duplicate_image)
+    text_padding = 2.5  # Anpassbares Padding
+    for bbox, conf, phrase in zip(filtered_tensor_xyxy, filtered_logits, filtered_phrases):
         bbox = tuple(map(int, bbox))
         draw.rectangle(bbox, outline="red", width=2)
-        draw.text((bbox[0], bbox[1]), f"Confidence: {conf:.2f}", fill="red")
+        
+        # Erstelle das Rechteck für den Hintergrund des Textes mit Padding
+        text_bg_x1 = bbox[0]
+        text_bg_y1 = bbox[1]
+        text_bg_x2 = bbox[0] + 120  # Beispielbreite des Hintergrunds
+        text_bg_y2 = bbox[1] + 20   # Beispielhöhe des Hintergrunds
+        draw.rectangle(((text_bg_x1, text_bg_y1), (text_bg_x2, text_bg_y2)), fill="red")  # Hintergrund für den Text
 
-    # Konvertiere das Bild in einen Tensor
+        # Textkoordinaten mit Padding
+        text_x = bbox[0] + text_padding
+        text_y = bbox[1] + text_padding
+
+        draw.text((text_x, text_y), f"{phrase}: {conf:.2f}", fill="white")  # Weißer Text auf rotem Hintergrund
+
+
+    # if we need to debug lets see what we got
+    #image.show()
+    cropped_images = []
+    for box in filtered_boxes:
+        # Denormalisiere die Box, falls nötig
+        box = denormalize_bbox(box, width, height)  # Stelle sicher, dass du die korrekten Bildabmessungen hast
+
+        # Schneide das Bild anhand der Box aus
+        cropped_img = crop_image(image, box)
+
+        #cropped_img.show()
+        # Füge das ausgeschnittene Bild der Liste hinzu
+        cropped_images.append(cropped_img)
+        
+
+
+    
+
+    # convert Image to Tensor
     transform = transforms.ToTensor()
-    tensor_image = transform(image)
+    tensor_image = transform(duplicate_image)
     tensor_image_expanded = tensor_image.unsqueeze(0)
     tensor_image_formated = tensor_image_expanded.permute(0, 2, 3, 1)
 
-
     return filtered_tensor_xyxy, filtered_phrases, filtered_logits, tensor_image_formated
-
 
 def sam_segment(
     sam_model,
@@ -322,15 +486,12 @@ def sam_segment(
             masks, _ , _ = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False, hq_token_only=True)
     else:
         # :NOTE - https://github.com/facebookresearch/segment-anything/issues/169 segement_anything got wrong floats instead of boolean mask_input=
-        #if two_pass is True: 
-        #    pre_masks, _ , _ = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False)
-        #    masks, _ , _ = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False)
-        #else:
-        #    masks, _ , _ = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False)
-        masks, _ , logits = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False)
-        #print("type >>>>>>>>>", type(logits))
-        #print("shape >>>>>>>>>", logits.shape)
-        #masks, _ , _ = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=logits, multimask_output=False)
+        if two_pass is True: 
+            tmpmasks, _ , logits = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False)
+            masks, _ , _ = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=logits, multimask_output=False)
+
+        else:
+            masks, _ , logits = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False)
 
     """
     Removes small disconnected regions and holes in masks, then reruns
