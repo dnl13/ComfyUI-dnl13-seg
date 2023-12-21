@@ -3,8 +3,27 @@ import numpy as np
 from PIL import Image
 from ..node_fnc.node_dinosam_prompt import sam_segment, groundingdino_predict, sam_segment_new
 from ..utils.collection import get_local_filepath, check_mps_device
+from ..utils.image_processing import hex_to_rgb
 import re
 from collections import defaultdict
+
+
+def blend_rgba_with_background(rgba_tensor, bg_color_tensor):
+    """
+    Kombiniert ein RGBA-Bild mit einem RGB-Hintergrund und gibt ein RGB-Bild zurück.
+
+    :param rgba_tensor: Ein RGBA-Bildtensor der Form [1, Höhe, Breite, 4].
+    :param bg_color_tensor: Ein RGB-Hintergrundtensor der Form [3, Höhe, Breite].
+    :return: Ein RGB-Bildtensor der Form [1, Höhe, Breite, 3].
+    """
+    # Extrahieren Sie den RGB-Teil und den Alpha-Kanal des Bildes
+    rgb = rgba_tensor[:, :, :, :3]
+    alpha = rgba_tensor[:, :, :, 3:4].squeeze(0)  # Entfernen Sie die Batch-Dimension
+
+    # Führen Sie das Alpha-Blending durch
+    blended_rgb = alpha * rgb + (1 - alpha) * bg_color_tensor
+
+    return blended_rgb
 
 
 class GroundingDinoSAMSegment:
@@ -34,9 +53,21 @@ class GroundingDinoSAMSegment:
                     "max": 1.0,
                     "step": 0.01
                 }),
-
                 "multimask": ('BOOLEAN', {"default":False}),
                 "two_pass": ('BOOLEAN', {"default":False}),
+
+                "sam_contrasts_helper": ("FLOAT", {
+                    "default": 1.0,
+                    "min": 0,
+                    "max": 3.0,
+                    "step": 0.01
+                }),
+                "sam_brightness_helper": ("INT", {
+                    "default": 0,
+                    "min": -100,
+                    "max": 100,
+                    "step": 1
+                }),
                 "dedicated_device": (["Auto", "CPU", "GPU"], ),
                 "optimize_prompt_for_dino":('BOOLEAN', {"default":True}),
                 "clean_mask_holes": ("INT", {
@@ -62,12 +93,13 @@ class GroundingDinoSAMSegment:
                     "max":1024,
                     "step": 1
                 }), 
+                "background_color": ("STRING", {"default": "#00FF00","multiline": False}),
             },
         }
     CATEGORY = "dnl13"
     FUNCTION = "main"
-    RETURN_TYPES = ("IMAGE", "MASK", "IMAGE")
-    RETURN_NAMES = ("RGBA_Images", "Masks", "DINO Image Detections Debug (rgb)")
+    RETURN_TYPES = ("IMAGE", "IMAGE", "MASK", "IMAGE")
+    RETURN_NAMES = ("RGBA_Images", "RGB_Images (with Background Color)", "Masks", "DINO Image Detections Debug (rgb)")
 
     def main(
             self, 
@@ -83,6 +115,9 @@ class GroundingDinoSAMSegment:
             upper_confidence_threshold,
             lower_confidence_threshold,
             two_pass,
+            sam_contrasts_helper, 
+            sam_brightness_helper,
+            background_color,
             optimize_prompt_for_dino=False,
             multimask=False, 
             dedicated_device="Auto"
@@ -109,7 +144,11 @@ class GroundingDinoSAMSegment:
         empty_mask = torch.zeros((1, 1, img_height, img_width), dtype=torch.float32) # [B,C,H,W]
         empty_mask = empty_mask / 255.0
         #
-        res_images , res_masks , res_boxes, res_debug_images, unique_phrases = [],[],[],[],[]
+        res_images_rgba , res_images_rgb ,res_masks , res_boxes, res_debug_images, unique_phrases = [],[],[],[],[],[]
+        #
+        bg_color_rgb = hex_to_rgb(background_color)
+        bg_color_rgb_normalized = torch.tensor([value / 255.0 for value in bg_color_rgb], dtype=torch.float32)
+
         #
         height, width = image.size(1), image.size(2)
         #
@@ -120,6 +159,10 @@ class GroundingDinoSAMSegment:
         transparent_maske_tensor = torch.zeros(1, height, width)
         empty_box = torch.zeros((1, 4)) 
         empty_logits = torch.zeros((1, 1)) 
+        #
+        bg_color_tensor = bg_color_rgb_normalized.clone().detach()
+        bg_color_tensor = bg_color_tensor.view(1, 1, 1, 3)  # Form anpassen für Broadcasting
+        bg_color_tensor = bg_color_tensor.expand(1, height, width, 3) 
         #
         if optimize_prompt_for_dino is not False:
             if prompt.endswith(","):
@@ -149,7 +192,7 @@ class GroundingDinoSAMSegment:
                 phrase_boxes[p] = {'box': [], 'mask': [], 'image': [], 'logits':[]}
 
             for i, phrase in enumerate(phrases):
-                sam_masks, masked_image = sam_segment_new(sam_model, item, boxes[i], clean_mask_holes, clean_mask_islands, mask_blur, mask_grow_shrink_factor, two_pass, device)
+                sam_masks, masked_image = sam_segment_new(sam_model, item, boxes[i], clean_mask_holes, clean_mask_islands, mask_blur, mask_grow_shrink_factor, two_pass, sam_contrasts_helper, sam_brightness_helper, device)
                 masked_image = masked_image.unsqueeze(0)
                 phrase_boxes[phrase]['box'].append(boxes[i])
                 phrase_boxes[phrase]['mask'].append(sam_masks)
@@ -228,12 +271,19 @@ class GroundingDinoSAMSegment:
         print("found following unique_phrases in prompt:", unique_phrases)
 
         for index in sorted(output_mapping.keys()):
+
             if multimask:
                 # Füge alle Masken und Bilder separat hinzu, wenn multimask aktiviert ist
                 for phrase in unique_phrases:
                     if phrase in output_mapping[index]:
-                        res_images.extend(output_mapping[index][phrase]['image'])
+                        res_images_rgba.extend(output_mapping[index][phrase]['image'])
                         res_masks.extend(output_mapping[index][phrase]['mask'])
+
+                        # Erstellen Sie hier den Hintergrund-Tensor
+                        for img_rgba in output_mapping[index][phrase]['image']:
+                            rgb_image_tensor = blend_rgba_with_background(img_rgba.to(device), bg_color_tensor.to(device))
+                            res_images_rgb.append(rgb_image_tensor)  # Nur RGB-Kanäle hinzufügen
+
             else:
                 # Kombiniere Masken und Bilder für das aktuelle Frame
                 combined_mask = None
@@ -257,103 +307,16 @@ class GroundingDinoSAMSegment:
 
                 # Füge das kombinierte Bild und die kombinierte Maske hinzu
                 if combined_image is not None:
-                    res_images.append(combined_image)
+                    res_images_rgba.append(combined_image)
+
+                    rgb_image_tensor = blend_rgba_with_background(combined_image.to(device), bg_color_tensor.to(device))
+                    res_images_rgb.append(rgb_image_tensor)  # Nur RGB-Kanäle hinzufügen
+
                 if combined_mask is not None:
                     res_masks.append(combined_mask)
             
-        res_images = torch.cat(res_images, dim=0)
+        res_images_rgba = torch.cat(res_images_rgba, dim=0)
+        res_images_rgb = torch.cat(res_images_rgb, dim=0)
         res_masks = torch.cat(res_masks, dim=0)
 
-
-
-
-      
-        return (res_images, res_masks, res_debug_images, )
-    
-        """
-        TODO: 
-        - sortiere phrase wie im prompt. beachte aber das es zu einfachen ähnlichkeiten kann "left feet" = 'feet"
-        - checke ob phrase der gleichen anzahl an prompts entsprechen. sonst mit leeren masken und bildern auffüllen
-
-        - stelle fest wo wieviel masken und boxen drin sind um ggfl auch aufzufüllen
-        - 
-        """
-        """
-        # Vorübergehende Speicherung der Anzahl der erkannten Phrasen pro Bild
-        phrase_count = {phrase: phrases.count(phrase) for phrase in set(phrases)}
-
-        output_mapping[index] = {pl: {'masks': [], 'images': []} for pl in prompt_list}
-
-
-        # Iteration durch die Phrasen in der finalen Liste
-        for pl in prompt_list:
-            # Sicherstellen, dass die richtige Anzahl von Masken und Bildern gespeichert wird
-            count = phrase_count.get(pl, 0)
-
-            for _ in range(count):
-                box = phrase_boxes.get(pl)  # Die Box für die aktuelle Phrase
-                for b in box: 
-                    sam_masks, masked_image = sam_segment_new(sam_model, item, b, clean_mask_holes, clean_mask_islands, mask_blur, mask_grow_shrink_factor, two_pass, device)
-                    masked_image = masked_image.unsqueeze(0)
-                    output_mapping[index][pl]['masks'].extend(sam_masks)
-                    output_mapping[index][pl]['images'].extend(masked_image)
-        """
-
-        """
-        for index, data in output_mapping.items():
-            print("Frame", index)
-            for phrase, values in data.items():
-                print("phrase",phrase)
-                print("values['masks']",len(values['masks']))
-
-        find_max_len = []
-        for index, data in output_mapping.items():
-            for key, value in data.items():
-                find_max_len.append(len(value))
-        max_len = max(find_max_len)
-       
-
-        #max_masks_per_phrase = get_max_masks_per_phrase(output_mapping)
-        #print(max(get_max_masks_per_phrase))
-    
-        output_mapping = process_masks(output_mapping, max_len, transparent_image_tensor, transparent_maske_tensor)
-         """
-
-
-
-        """
-        for i in sorted(output_mapping.keys()):  # Sortieren nach Index
-            for phrase in prompt_list:  # Reihenfolge gemäß prompt_list beachten
-                if phrase in output_mapping[i]:
-                    values = output_mapping[i][phrase]
-                    res_masks.extend(values['masks'])
-                    res_images.extend(values['images'])
-
-
-
-        phrases_set = set()
-        for index, data in output_mapping.items():
-            for phrase in data.keys():
-                phrases_set.add(phrase)                
-        """
-
-        """
-        sam_masks, masked_image = sam_segment_new(sam_model, item, boxes, clean_mask_holes, clean_mask_islands, mask_blur, mask_grow_shrink_factor, two_pass, device)
-        masked_image = masked_image.unsqueeze(0)
-        """
-
-        """
-        # Formated Print
-        if isinstance(logits, torch.Tensor):
-            logits = logits.tolist()
-        formatted_phrases = [f"{phrase} ({logit:.4f})" for phrase, logit in zip(phrases, logits)]
-        formatted_output = ', '.join(formatted_phrases)
-        #print(f"\033[1;32m(dnl13-seg)\033[0m > phrase(confidence): {formatted_output}")
-        """
-
-
-        #print("------------ res_images ----------- ")
-        #for it in res_images:
-        #    print(it.shape)
-
- 
+        return (res_images_rgba, res_images_rgb, res_masks, res_debug_images, )

@@ -20,6 +20,41 @@ from segment_anything.utils.amg import  remove_small_regions,build_point_grid, b
 from ..utils.image_processing import mask2cv, shrink_grow_mskcv, blur_mskcv, img_combine_mask_rgba , split_image_mask
 from ..utils.collection import split_captions
 
+
+def enhance_edges(image_np_rgb, alpha=1.5, beta=50, edge_alpha=1.0):
+    """
+    Erhöht den Kontrast, die Helligkeit und die Kantenstärke des Bildes.
+
+    :param image_np_rgb: Eingabebild in NumPy-Array-Form.
+    :param alpha: Faktor für den Kontrast.
+        Wertebereich: Typischerweise zwischen 1.0 und 3.0.
+        Standardwert: 1.0 (keine Änderung des Kontrasts).
+        Hinweis: Werte größer als 1 erhöhen den Kontrast, während Werte zwischen 0 und 1 ihn verringern. Extrem hohe Werte können zu einer Sättigung führen, bei der Details verloren gehen.
+    :param beta: Wert für die Helligkeit.
+        Wertebereich: Kann positiv oder negativ sein, typischerweise zwischen -100 und 100.
+        Standardwert: 0 (keine Änderung der Helligkeit).
+        Hinweis: Positive Werte erhöhen die Helligkeit, negative Werte verringern sie. Zu hohe oder zu niedrige Werte können dazu führen, dass helle oder dunkle Bereiche keine Details mehr aufweisen.
+    :param edge_alpha: Faktor für die Kantenstärke.
+        Wertebereich: Normalerweise zwischen 0 und 1.
+        Standardwert: 1.0 (volle Stärke der Kanten).
+        Hinweis: Ein Wert von 0 würde keine Kanten hinzufügen, während ein Wert von 1 die Kanten deutlich hervorhebt. Wenn die Kanten zu stark hervorgehoben werden, kann das Bild überladen wirken und die Segmentierung beeinträchtigen.
+    :return: Angepasstes Bild als NumPy-Array.
+    """
+    # Adjust contrast and brightness
+    adjusted_image = np.clip(alpha * image_np_rgb.astype(np.float32) + beta, 0, 255).astype(np.uint8)
+    
+    # Convert to grayscale
+    gray = cv2.cvtColor(adjusted_image, cv2.COLOR_RGB2GRAY)
+    
+    # Apply edge detection
+    edges = cv2.Canny(gray, 100, 200)
+    edges_colored = cv2.cvtColor(edges, cv2.COLOR_GRAY2RGB)
+    
+    # Combine original image with edges
+    enhanced_image = cv2.addWeighted(adjusted_image, 1, edges_colored, edge_alpha, 0)
+
+    return enhanced_image
+
 def load_dino_image(image_pil):
     transform = v2.Compose([
         v2.RandomResize(800, max_size=1333),
@@ -454,6 +489,8 @@ def sam_segment_new(
     mask_blur,
     mask_grow_shrink_factor,
     two_pass,
+    sam_contrasts_helper,
+    sam_brightness_helper,
     device
 ):  
     if hasattr(sam_model, 'model_name') and 'hq' in sam_model.model_name:
@@ -465,11 +502,13 @@ def sam_segment_new(
     if boxes.shape[0] == 0:
         return None
     
-    #predictor = SamPredictorHQ(sam_model)
     image_np = np.array(image)
     height, width = image_np.shape[:2]
     image_np_rgb = image_np[..., :3]
-    predictor.set_image(image_np_rgb)
+    #
+    sam_input_image = enhance_edges(image_np_rgb, alpha=sam_contrasts_helper, beta=sam_brightness_helper, edge_alpha=1.0) # versuche um die Erkennung zu verbessern
+    #
+    predictor.set_image(sam_input_image)
 
     transformed_boxes = predictor.transform.apply_boxes_torch( boxes, image_np.shape[:2]).to(device)
 
@@ -492,18 +531,12 @@ def sam_segment_new(
         if two_pass is True: 
             tmpmasks, _ , pre_logits = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False)
             masks, quality , logits = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=pre_logits, multimask_output=False)
-
         else:
             masks, quality , logits = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False)
 
 
-    #masks = masks.squeeze(0)
     # Finde den Index der Maske mit dem höchsten Qualitätswert
-    #index_highest_quality = torch.argmax(quality)
-    #mask_highest_quality = masks[index_highest_quality]
-    #print("masks.shape",masks.shape)
     combined_mask = torch.sum(masks, dim=0)
-    #print("combined_mask.shape",combined_mask.shape)
     mask_np =  combined_mask.permute( 1, 2, 0).cpu().numpy()# H.W.C
     # postproccess mask 
     mask_np, _ = remove_small_regions(mask=mask_np,area_thresh=clean_mask_holes,mode="holes" )

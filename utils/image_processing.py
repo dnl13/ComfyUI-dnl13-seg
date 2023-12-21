@@ -3,6 +3,11 @@ import numpy as np
 from PIL import Image
 import cv2
 
+def hex_to_rgb(hex_color):
+    hex_color = hex_color.lstrip('#')  # Entfernen Sie das '#' Zeichen, falls vorhanden
+    rgb = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))  # Konvertieren Sie Hex zu RGB
+    return rgb
+
 
 def mask2cv(mask_np):
   """
