@@ -306,7 +306,7 @@ def scale_boxes(new_boxes, original_box):
 
     return scaled_boxes
 
-def groundingdino_predict(dino_model,image, prompt,box_threshold,upper_confidence_threshold, lower_confidence_threshold, optimize_prompt_for_dino, device ):
+def groundingdino_predict(dino_model,image, prompt,box_threshold,upper_confidence_threshold, lower_confidence_threshold, device ):
     
     #dino_image = load_dino_image(image.convert("RGB")) 
     #dino_image = image.convert("RGB")
@@ -314,6 +314,7 @@ def groundingdino_predict(dino_model,image, prompt,box_threshold,upper_confidenc
     #dino_image = dino_image.to(device)
 
     #check if we want prompt optmiziation = replace sd ","" with dino "." 
+    """
     if optimize_prompt_for_dino is not False:
         if prompt.endswith(","):
           prompt = prompt[:-1]
@@ -323,6 +324,7 @@ def groundingdino_predict(dino_model,image, prompt,box_threshold,upper_confidenc
     prompt = prompt.strip()
     if not prompt.endswith("."):
         prompt = prompt + "."
+    """
 
 
     image = image.convert("RGB")
@@ -438,6 +440,93 @@ def groundingdino_predict(dino_model,image, prompt,box_threshold,upper_confidenc
     tensor_image_formated = tensor_image_expanded.permute(0, 2, 3, 1)
 
     return filtered_tensor_xyxy, filtered_phrases, filtered_logits, tensor_image_formated
+
+
+
+
+
+def sam_segment_new(
+    sam_model,
+    image,
+    boxes,
+    clean_mask_holes,
+    clean_mask_islands,
+    mask_blur,
+    mask_grow_shrink_factor,
+    two_pass,
+    device
+):  
+    if hasattr(sam_model, 'model_name') and 'hq' in sam_model.model_name:
+        sam_is_hq = True
+        predictor = SamPredictorHQ(sam_model)
+    else:
+        sam_is_hq = False
+        predictor = SamPredictor(sam_model)
+    if boxes.shape[0] == 0:
+        return None
+    
+    #predictor = SamPredictorHQ(sam_model)
+    image_np = np.array(image)
+    height, width = image_np.shape[:2]
+    image_np_rgb = image_np[..., :3]
+    predictor.set_image(image_np_rgb)
+
+    transformed_boxes = predictor.transform.apply_boxes_torch( boxes, image_np.shape[:2]).to(device)
+
+    """
+    predictor.predict_torch Returns:
+    (np.ndarray): The output masks in CxHxW format, where C is the number of masks, and (H, W) is the original image size.
+    (np.ndarray): An array of length C containing the model's predictions for the quality of each mask.
+    (np.ndarray): An array of shape CxHxW, where C is the number of masks and H=W=256. These low resolution logits can be passed to a subsequent iteration as mask input.
+    """
+
+    if sam_is_hq is True:
+        if two_pass is True: 
+            _, _ , pre_logits = predictor.predict_torch(point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input = None, multimask_output=True, return_logits=True, hq_token_only=False)
+            pre_logits = torch.mean(pre_logits, dim=1, keepdim=True)
+            masks, quality , logits = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input = pre_logits, multimask_output=False, hq_token_only=True)
+        else:
+            masks,quality , logits = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False, hq_token_only=True)
+    else:
+        # :NOTE - https://github.com/facebookresearch/segment-anything/issues/169 segement_anything got wrong floats instead of boolean mask_input=
+        if two_pass is True: 
+            tmpmasks, _ , pre_logits = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False)
+            masks, quality , logits = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=pre_logits, multimask_output=False)
+
+        else:
+            masks, quality , logits = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False)
+
+
+    #masks = masks.squeeze(0)
+    # Finde den Index der Maske mit dem höchsten Qualitätswert
+    #index_highest_quality = torch.argmax(quality)
+    #mask_highest_quality = masks[index_highest_quality]
+    #print("masks.shape",masks.shape)
+    combined_mask = torch.sum(masks, dim=0)
+    #print("combined_mask.shape",combined_mask.shape)
+    mask_np =  combined_mask.permute( 1, 2, 0).cpu().numpy()# H.W.C
+    # postproccess mask 
+    mask_np, _ = remove_small_regions(mask=mask_np,area_thresh=clean_mask_holes,mode="holes" )
+    mask_np, _ = remove_small_regions(mask=mask_np,area_thresh=clean_mask_islands,mode="islands" )
+    
+    msk_cv2 = mask2cv(mask_np)
+    msk_cv2 = shrink_grow_mskcv(msk_cv2, mask_grow_shrink_factor)
+    msk_cv2_blurred = blur_mskcv(msk_cv2, mask_blur)
+
+    # fix if mask gets wrong dimensions
+    if msk_cv2_blurred.ndim < 3 or msk_cv2_blurred.shape[-1] != 1:
+        msk_cv2_blurred = np.expand_dims(msk_cv2_blurred, axis=-1)
+    image_with_alpha = img_combine_mask_rgba(image_np_rgb , msk_cv2_blurred)
+    _, msk = split_image_mask(image_with_alpha,device)
+
+    image_with_alpha_tensor = to_tensor(image_with_alpha)
+    image_with_alpha_tensor = image_with_alpha_tensor.permute(1, 2, 0)
+
+    mask_ts = to_tensor(image_with_alpha)
+    mask_ts = mask_ts.unsqueeze(0)
+    mask_ts = mask_ts.permute(0, 2, 3, 1) 
+
+    return msk, image_with_alpha_tensor
 
 def sam_segment(
     sam_model,

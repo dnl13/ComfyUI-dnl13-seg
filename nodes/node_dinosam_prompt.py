@@ -1,46 +1,74 @@
 import torch
 import numpy as np
 from PIL import Image
-
-import comfy.model_management
-from ..node_fnc.node_dinosam_prompt import sam_segment, groundingdino_predict
+from ..node_fnc.node_dinosam_prompt import sam_segment, groundingdino_predict, sam_segment_new
 from ..utils.collection import get_local_filepath, check_mps_device
-import os
-import folder_paths
-
-from groundingdino.util.slconfig import SLConfig
-#from groundingdino.models import build_model
-from groundingdino.util.utils import clean_state_dict
-
-from ..utils.grounding_dino_utils import build_model, build_groundingdino
-
-from .node_modelloader_dinov1 import load_groundingdino_model, list_groundingdino_model
-
 import re
-def sort_result_to_prompt(phrases, masks, images, prompt):
-    # Split prompt by ',' or '|'
-    order_tokens = re.split(r',|\|', prompt)
+from server import PromptServer
+from collections import defaultdict
 
-    # Create a mapping from order tokens to their positions
+def process_masks(output_mapping, max_masks_per_phrase, transparent_image_tensor, transparent_mask_tensor):
+
+    for index, data in output_mapping.items():
+        print("Frame", index)
+        for phrase, values in data.items():
+            print("phrase",phrase)
+            print("values['masks']",len(values['masks']))
+
+    """
+    max_detections = max_masks_per_phrase
+
+    for index, data in output_mapping.items():
+        print("index",index)
+
+        for phrase, values in data.items():
+            num_masks = len(values['masks'])
+            num_images = len(values['images'])
+
+            print(f"phrase: {phrase} - num_masks: {num_masks} num_images:{num_images}")
+
+  
+            if num_masks > 0 and num_masks < max_detections:
+                missing_masks = max_detections - num_masks
+                duplicated_masks = values['masks'] * (missing_masks // num_masks)
+                duplicated_images = values['images'] * (missing_masks // num_masks)
+                
+                values['masks'].extend(duplicated_masks)
+                values['images'].extend(duplicated_images)
+                
+                remaining_masks = missing_masks % num_masks
+                if remaining_masks > 0:
+                    values['masks'].extend([transparent_mask_tensor] * remaining_masks)
+                    values['images'].extend([transparent_image_tensor] * remaining_masks)
+            elif num_masks == 0:
+                # Wenn num_masks 0 ist, füge transparente Masken und Bilder hinzu
+                values['masks'].extend([transparent_mask_tensor] * max_detections)
+                values['images'].extend([transparent_image_tensor] * max_detections)
+    """
+    return output_mapping
+
+
+
+
+def sort_result_to_prompt(phrases, masks, images, logits, prompt):
+    order_tokens = re.split(r',|\|', prompt)
     order_mapping = {token.strip(): i for i, token in enumerate(order_tokens)}
 
-    # Define a custom sorting key function
+    # Hier prüfen wir, welche Phrasen in der Liste enthalten sind und ihre Positionen zuordnen
+    phrases_mapping = {phrase: order_mapping.get(phrase.strip()) for phrase in phrases if phrase.strip() in order_mapping}
+
+    # Funktion, um den Schlüssel für die Sortierung zu generieren
     def custom_key(item):
-        key_match = re.match(r'([^\d]+)\((\d+\.\d+)\)', item)
-        if key_match:
-            key, value = key_match.groups()
-            return order_mapping.get(key.strip(), float('inf')), -float(value)
-        else:
-            # Handle the case where the format doesn't match
-            return float('inf'), float(item)
+        phrase, _ = item
+        return phrases_mapping.get(phrase.strip(), float('inf'))
 
-    # Sort phrases, masks, images based on the custom key
-    sorted_data = sorted(zip(phrases, masks, images), key=lambda x: custom_key(x[0]))
+    # Liste von Tupeln erstellen: (phrase, mask, image, logit)
+    sorted_data = sorted(zip(phrases, masks, images, logits), key=lambda x: custom_key(x))
 
-    # Unpack the sorted data into separate lists
-    sorted_phrases, sorted_masks, sorted_images = zip(*sorted_data)
+    # Daten aufteilen in separate Listen
+    sorted_phrases, sorted_masks, sorted_images, sorted_logits = zip(*sorted_data)
 
-    return sorted_phrases, sorted_masks, sorted_images
+    return sorted_phrases, sorted_masks, sorted_images, sorted_logits
 
 
 def resize_boxes(boxes, original_size, scale_factor):
@@ -81,24 +109,7 @@ def resize_boxes(boxes, original_size, scale_factor):
 
     return resized_boxes
 
-def interpolate_mask_positions(boxes):
-    """
-    Interpoliert die Maskenpositionen relativ zur Durchschnittsposition der Bounding-Boxen.
 
-    Args:
-    - boxes: Tensor der Bounding-Boxen im Format xyxy (Shape: [batch_size, 4])
-    - batch_size: Die Batch-Größe
-
-    Returns:
-    - interpolated_positions: Tensor der interpolierten Maskenpositionen (Shape: [batch_size, 4])
-    """
-    # Hier wird die Durchschnittsposition der Bounding-Boxen berechnet
-    mean_boxes = torch.mean(boxes, dim=0)
-
-    # Hier werden die Maskenpositionen relativ zur Durchschnittsposition interpoliert
-    interpolated_positions = boxes - mean_boxes
-
-    return mean_boxes + interpolated_positions
 
 class GroundingDinoSAMSegment:
     @classmethod
@@ -185,6 +196,10 @@ class GroundingDinoSAMSegment:
         #grounding_dino_model = load_groundingdino_model(grounding_dino_model)
         #
         # :TODO - if comfy.model_management.get_torch_device(), returns mps (apple silicon) switch to CPU 
+
+        dictionary_of_stuff = {"something":"A text message"}
+        PromptServer.instance.send_sync("my-message-handler", dictionary_of_stuff)
+
         device_mapping = {
             "Auto": check_mps_device(),
             "CPU": torch.device("cpu"),
@@ -192,129 +207,260 @@ class GroundingDinoSAMSegment:
         }
         device = device_mapping.get(dedicated_device)
         #
-        # send model to selected device 
         grounding_dino_model.to(device)
         grounding_dino_model.eval()
         sam_model.to(device)
         sam_model.eval()
         #
-        # in case sam or dino dont find anything, return blank mask and original image
-        img_batch, img_height, img_width, img_channel = image.shape        # get original image dimensions 
+        img_batch, img_height, img_width, img_channel = image.shape       
         empty_mask = torch.zeros((1, 1, img_height, img_width), dtype=torch.float32) # [B,C,H,W]
         empty_mask = empty_mask / 255.0
         #
-        # empty output
-        res_images = []
-        res_masks = []
-        res_debug_images = []
+        res_images , res_masks , res_boxes, res_debug_images, unique_phrases = [],[],[],[],[]
         #
-        detection_errors = False
-        #
-        # Nehme die Höhe und Breite des aktuellen Bildes
         height, width = image.size(1), image.size(2)
-    
-        # Erstelle ein leeres transparentes Bild mit derselben Größe wie das aktuelle Bild
+        #
         transparent_image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
         transparent_image_np = np.array(transparent_image)
         transparent_image_tensor = torch.from_numpy(transparent_image_np).permute(2, 0, 1).unsqueeze(0)
         transparent_image_tensor = transparent_image_tensor.permute(0, 2, 3, 1)
         transparent_maske_tensor = torch.zeros(1, height, width)
-
+        empty_box = torch.zeros((1, 4)) 
+        empty_logits = torch.zeros((1, 1)) 
         #
-        for item in image:
+        if optimize_prompt_for_dino is not False:
+            if prompt.endswith(","):
+                prompt = prompt[:-1]
+            prompt = prompt.replace(",", " .")
+        prompt = prompt.lower()
+        prompt = prompt.strip()
+        if not prompt.endswith("."):
+            prompt = prompt + "."
+        #
+        prompt_list = prompt.split('.')
+        prompt_list = [e.strip() for e in prompt_list]
+        prompt_list.pop()
+        #
+        print("got prompt like this:", prompt_list)
+        #
+        #
+        #      
+        output_mapping = {}
+        for index, item in enumerate(image):
             item = Image.fromarray(np.clip(255. * item.cpu().numpy(), 0, 255).astype(np.uint8)).convert('RGBA')
-            # run dino for prompt guides segmentation
-
-            boxes, phrases, logits, debug_image = groundingdino_predict(
-                grounding_dino_model,
-                item,
-                prompt,
-                box_threshold,
-                upper_confidence_threshold,
-                lower_confidence_threshold,
-                optimize_prompt_for_dino,
-                device
-            )
-
-
-            if boxes.size(0) == 0:
-            # When Dino didnt found a thing replace with empty image and empty mask
-                images = [transparent_image_tensor]
-                masks = [transparent_maske_tensor]
-            else:
-            # When Dino found a thing do SAM segmentation
-                (images, masks) = sam_segment( 
-                    sam_model, 
-                    item, boxes, 
-                    clean_mask_holes, 
-                    clean_mask_islands, 
-                    mask_blur, 
-                    mask_grow_shrink_factor, 
-                    multimask, 
-                    two_pass, device 
-                )
-            
-
-            # sort output according to the prompt input
-            if multimask is True: 
-                phrases , masks, images =  sort_result_to_prompt(phrases, masks, images , prompt)
-
-            
-            # Formated Print
-            if isinstance(logits, torch.Tensor):
-                logits = logits.tolist()
-            formatted_phrases = [f"{phrase} ({logit:.4f})" for phrase, logit in zip(phrases, logits)]
-            formatted_output = ', '.join(formatted_phrases)
-            print(f"\033[1;32m(dnl13-seg)\033[0m > phrase(confidence): {formatted_output}")
-
-            # add results to output
-            res_images.extend(images)
-            res_masks.extend(masks)
+            boxes, phrases, logits, debug_image = groundingdino_predict(grounding_dino_model, item, prompt, box_threshold, upper_confidence_threshold, lower_confidence_threshold, device)
             res_debug_images.extend(debug_image)
-        
+
+            phrase_boxes = {}
+            for p in phrases:
+                phrase_boxes[p] = {'box': [], 'mask': [], 'image': [], 'logits':[]}
+
+            for i, phrase in enumerate(phrases):
+                sam_masks, masked_image = sam_segment_new(sam_model, item, boxes[i], clean_mask_holes, clean_mask_islands, mask_blur, mask_grow_shrink_factor, two_pass, device)
+                masked_image = masked_image.unsqueeze(0)
+                phrase_boxes[phrase]['box'].append(boxes[i])
+                phrase_boxes[phrase]['mask'].append(sam_masks)
+                phrase_boxes[phrase]['image'].append(masked_image)
+                phrase_boxes[phrase]['logits'].append(logits[i])
+
+            output_mapping[index] = phrase_boxes
+
+        phrase_mask_count = defaultdict(lambda: defaultdict(int))
+        for index, data in output_mapping.items():
+            for phrase, values in data.items():
+                num_masks = len(values['mask'])
+                phrase_mask_count[phrase][index] = num_masks
+        max_masks_per_phrase = {
+            phrase: {'frame': max(counts, key=counts.get), 'num_masks': max(counts.values())}
+            for phrase, counts in phrase_mask_count.items()
+        }
+        max_found_masks = 0
+        for info in max_masks_per_phrase.values():
+            if info['num_masks'] > max_found_masks:
+                max_found_masks = info['num_masks']
+        print("maximum masks per frame depending on prompt detection:", max_found_masks)
+
+        # Erstelle eine Liste mit allen Phrasen aus dem output_mapping
+        all_phrases = set()
+        for index, data in output_mapping.items():
+            all_phrases.update(data.keys())
+
+        # Durchlaufe die prompt_list und überprüfe, ob die Phrasen im output_mapping oder als Teilphrasen vorhanden sind
+        for phrase in prompt_list:
+            # Überprüfe, ob die Phrase im output_mapping oder als Teilphrase vorhanden ist
+            found = False
+            for existing_phrase in all_phrases:
+                if phrase == existing_phrase or phrase in existing_phrase or existing_phrase in phrase:
+                    unique_phrases.append(existing_phrase)
+                    found = True
+                    break
+
+            # Falls die Phrase nicht gefunden wurde, füge sie zur eindeutigen Phrasenliste hinzu
+            if not found:
+                unique_phrases.append(phrase)
+
+        # Entferne doppelte Einträge und behalte die Reihenfolge bei
+        unique_phrases = list(dict.fromkeys(unique_phrases))
 
 
+        # Durchlaufe das output_mapping und füge fehlende Phrasen hinzu, dupliziere Elemente und sortiere dann
+        for index, data in output_mapping.items():
+            # Füge fehlende Phrasen hinzu
+            for phrase in unique_phrases:
+                if phrase not in data:
+                    data[phrase] = {
+                        'mask': [transparent_maske_tensor],
+                        'image': [transparent_image_tensor],
+                        'box': [empty_box],
+                        'logits': [empty_logits]
+                    }
 
-        if not res_images:
-            print("Die Liste ist leer!")
-        else:
-            print("Die Liste hat Elemente.")
+            # Stelle sicher, dass jede Phrase die gleiche Anzahl an Elementen hat
+            for phrase, items in data.items():
+                current_masks = len(items['mask'])
+                if current_masks < max_found_masks:
+                    # Berechne, wie viele Duplikate benötigt werden
+                    duplicates_needed = max_found_masks - current_masks
 
+                    # Dupliziere die vorhandenen Daten
+                    items['mask'].extend(items['mask'][:1] * duplicates_needed)
+                    items['image'].extend(items['image'][:1] * duplicates_needed)
+                    items['box'].extend(items['box'][:1] * duplicates_needed)
+                    items['logits'].extend(items['logits'][:1] * duplicates_needed)
 
+            # Sortiere die Phrasen gemäß der Reihenfolge in unique_phrases
+            data_sorted = {phrase: data[phrase] for phrase in unique_phrases if phrase in data}
+            output_mapping[index] = data_sorted
+
+        print("found following unique_phrases in prompt:", unique_phrases)
+
+        for index in sorted(output_mapping.keys()):
+            if multimask:
+                # Füge alle Masken und Bilder separat hinzu, wenn multimask aktiviert ist
+                for phrase in unique_phrases:
+                    if phrase in output_mapping[index]:
+                        res_images.extend(output_mapping[index][phrase]['image'])
+                        res_masks.extend(output_mapping[index][phrase]['mask'])
+            else:
+                # Kombiniere Masken und Bilder für das aktuelle Frame
+                combined_mask = None
+                combined_image = None
+
+                for phrase in unique_phrases:
+                    if phrase in output_mapping[index]:
+                        # Kombiniere Masken
+                        for mask in output_mapping[index][phrase]['mask']:
+                            if combined_mask is None:
+                                combined_mask = mask
+                            else:
+                                combined_mask = torch.max(combined_mask, mask)
+
+                        # Kombiniere Bilder mit Max-Pooling
+                        for img in output_mapping[index][phrase]['image']:
+                            if combined_image is None:
+                                combined_image = img
+                            else:
+                                combined_image = torch.max(combined_image, img)
+
+                # Füge das kombinierte Bild und die kombinierte Maske hinzu
+                if combined_image is not None:
+                    res_images.append(combined_image)
+                if combined_mask is not None:
+                    res_masks.append(combined_mask)
+            
         res_images = torch.cat(res_images, dim=0)
         res_masks = torch.cat(res_masks, dim=0)
 
 
-        """
-
-        # if nothing was detected just send simple input image and empty mask
-        if detection_errors is not False:
-            print("\033[1;32m(dnl13-seg)\033[0m The tensor 'boxes' is empty. No elements were found in the image search.")
-            res_images.append(image)
-            res_masks.append(empty_mask)
-            res_debug_images.extend(image)
-
-        try:
-            # Dein Code, der den Fehler auslöst
-            res_images = torch.cat(res_images, dim=0)
- 
-        except RuntimeError as e:
-            if "Sizes of tensors must match" in str(e):
-                raise Exception("No mask found for some images in the batch. Consider reducing the 'box_threshold' parameter.")
-            else:
-                # Andere RuntimeErrors, die hier nicht erwartet werden
-                raise Exception("Another error occurred:", e)
-        # generate output
-        #res_images = torch.cat(res_images, dim=0)
-        res_masks = torch.cat(res_masks, dim=0)
-        #res_debug_images = torch.cat(debug_image, dim=0)
-
-        # fix for ComfyUI Mask format :MASK torch.Tensor with shape [H,W] or [B,C,H,W]
-        if multimask:
-            res_masks = res_masks.unsqueeze_(dim=1) 
 
 
-        """
       
         return (res_images, res_masks, res_debug_images, )
+    
+        """
+        TODO: 
+        - sortiere phrase wie im prompt. beachte aber das es zu einfachen ähnlichkeiten kann "left feet" = 'feet"
+        - checke ob phrase der gleichen anzahl an prompts entsprechen. sonst mit leeren masken und bildern auffüllen
 
+        - stelle fest wo wieviel masken und boxen drin sind um ggfl auch aufzufüllen
+        - 
+        """
+        """
+        # Vorübergehende Speicherung der Anzahl der erkannten Phrasen pro Bild
+        phrase_count = {phrase: phrases.count(phrase) for phrase in set(phrases)}
+
+        output_mapping[index] = {pl: {'masks': [], 'images': []} for pl in prompt_list}
+
+
+        # Iteration durch die Phrasen in der finalen Liste
+        for pl in prompt_list:
+            # Sicherstellen, dass die richtige Anzahl von Masken und Bildern gespeichert wird
+            count = phrase_count.get(pl, 0)
+
+            for _ in range(count):
+                box = phrase_boxes.get(pl)  # Die Box für die aktuelle Phrase
+                for b in box: 
+                    sam_masks, masked_image = sam_segment_new(sam_model, item, b, clean_mask_holes, clean_mask_islands, mask_blur, mask_grow_shrink_factor, two_pass, device)
+                    masked_image = masked_image.unsqueeze(0)
+                    output_mapping[index][pl]['masks'].extend(sam_masks)
+                    output_mapping[index][pl]['images'].extend(masked_image)
+        """
+
+        """
+        for index, data in output_mapping.items():
+            print("Frame", index)
+            for phrase, values in data.items():
+                print("phrase",phrase)
+                print("values['masks']",len(values['masks']))
+
+        find_max_len = []
+        for index, data in output_mapping.items():
+            for key, value in data.items():
+                find_max_len.append(len(value))
+        max_len = max(find_max_len)
+       
+
+        #max_masks_per_phrase = get_max_masks_per_phrase(output_mapping)
+        #print(max(get_max_masks_per_phrase))
+    
+        output_mapping = process_masks(output_mapping, max_len, transparent_image_tensor, transparent_maske_tensor)
+         """
+
+
+
+        """
+        for i in sorted(output_mapping.keys()):  # Sortieren nach Index
+            for phrase in prompt_list:  # Reihenfolge gemäß prompt_list beachten
+                if phrase in output_mapping[i]:
+                    values = output_mapping[i][phrase]
+                    res_masks.extend(values['masks'])
+                    res_images.extend(values['images'])
+
+
+
+        phrases_set = set()
+        for index, data in output_mapping.items():
+            for phrase in data.keys():
+                phrases_set.add(phrase)                
+        """
+
+        """
+        sam_masks, masked_image = sam_segment_new(sam_model, item, boxes, clean_mask_holes, clean_mask_islands, mask_blur, mask_grow_shrink_factor, two_pass, device)
+        masked_image = masked_image.unsqueeze(0)
+        """
+
+        """
+        # Formated Print
+        if isinstance(logits, torch.Tensor):
+            logits = logits.tolist()
+        formatted_phrases = [f"{phrase} ({logit:.4f})" for phrase, logit in zip(phrases, logits)]
+        formatted_output = ', '.join(formatted_phrases)
+        #print(f"\033[1;32m(dnl13-seg)\033[0m > phrase(confidence): {formatted_output}")
+        """
+
+
+        #print("------------ res_images ----------- ")
+        #for it in res_images:
+        #    print(it.shape)
+
+ 
