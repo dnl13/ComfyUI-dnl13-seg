@@ -4,111 +4,7 @@ from PIL import Image
 from ..node_fnc.node_dinosam_prompt import sam_segment, groundingdino_predict, sam_segment_new
 from ..utils.collection import get_local_filepath, check_mps_device
 import re
-from server import PromptServer
 from collections import defaultdict
-
-def process_masks(output_mapping, max_masks_per_phrase, transparent_image_tensor, transparent_mask_tensor):
-
-    for index, data in output_mapping.items():
-        print("Frame", index)
-        for phrase, values in data.items():
-            print("phrase",phrase)
-            print("values['masks']",len(values['masks']))
-
-    """
-    max_detections = max_masks_per_phrase
-
-    for index, data in output_mapping.items():
-        print("index",index)
-
-        for phrase, values in data.items():
-            num_masks = len(values['masks'])
-            num_images = len(values['images'])
-
-            print(f"phrase: {phrase} - num_masks: {num_masks} num_images:{num_images}")
-
-  
-            if num_masks > 0 and num_masks < max_detections:
-                missing_masks = max_detections - num_masks
-                duplicated_masks = values['masks'] * (missing_masks // num_masks)
-                duplicated_images = values['images'] * (missing_masks // num_masks)
-                
-                values['masks'].extend(duplicated_masks)
-                values['images'].extend(duplicated_images)
-                
-                remaining_masks = missing_masks % num_masks
-                if remaining_masks > 0:
-                    values['masks'].extend([transparent_mask_tensor] * remaining_masks)
-                    values['images'].extend([transparent_image_tensor] * remaining_masks)
-            elif num_masks == 0:
-                # Wenn num_masks 0 ist, füge transparente Masken und Bilder hinzu
-                values['masks'].extend([transparent_mask_tensor] * max_detections)
-                values['images'].extend([transparent_image_tensor] * max_detections)
-    """
-    return output_mapping
-
-
-
-
-def sort_result_to_prompt(phrases, masks, images, logits, prompt):
-    order_tokens = re.split(r',|\|', prompt)
-    order_mapping = {token.strip(): i for i, token in enumerate(order_tokens)}
-
-    # Hier prüfen wir, welche Phrasen in der Liste enthalten sind und ihre Positionen zuordnen
-    phrases_mapping = {phrase: order_mapping.get(phrase.strip()) for phrase in phrases if phrase.strip() in order_mapping}
-
-    # Funktion, um den Schlüssel für die Sortierung zu generieren
-    def custom_key(item):
-        phrase, _ = item
-        return phrases_mapping.get(phrase.strip(), float('inf'))
-
-    # Liste von Tupeln erstellen: (phrase, mask, image, logit)
-    sorted_data = sorted(zip(phrases, masks, images, logits), key=lambda x: custom_key(x))
-
-    # Daten aufteilen in separate Listen
-    sorted_phrases, sorted_masks, sorted_images, sorted_logits = zip(*sorted_data)
-
-    return sorted_phrases, sorted_masks, sorted_images, sorted_logits
-
-
-def resize_boxes(boxes, original_size, scale_factor):
-    """
-    Vergrößert die Bounding-Boxen um einen bestimmten Prozentsatz der Originalbildgröße.
-
-    Args:
-    - boxes: Liste der Bounding-Boxen im Format xyxy [(x1, y1, x2, y2), ...]
-    - original_size: Tupel (width, height) der Originalbildgröße
-    - scale_factor: Der Prozentsatz, um den die Boxen vergrößert werden sollen
-
-    Returns:
-    - resized_boxes: Liste der vergrößerten Bounding-Boxen im Format xyxy
-    """
-    resized_boxes = []
-    for box in boxes:
-        x1, y1, x2, y2 = box
-        width, height = original_size
-
-        # Berechnen Sie die Breite und Höhe der Boxen
-        box_width = x2 - x1
-        box_height = y2 - y1
-
-        # Berechnen Sie den Betrag der Vergrößerung basierend auf dem scale_factor
-        scale_amount = scale_factor / 100.0
-
-        # Vergrößern Sie die Boxen
-        new_width = box_width + (width * scale_amount)
-        new_height = box_height + (height * scale_amount)
-
-        # Berechnen Sie die neuen Koordinaten der vergrößerten Boxen
-        new_x1 = max(0, x1 - (new_width - box_width) / 2)
-        new_y1 = max(0, y1 - (new_height - box_height) / 2)
-        new_x2 = min(width, x2 + (new_width - box_width) / 2)
-        new_y2 = min(height, y2 + (new_height - box_height) / 2)
-
-        resized_boxes.append((new_x1, new_y1, new_x2, new_y2))
-
-    return resized_boxes
-
 
 
 class GroundingDinoSAMSegment:
@@ -196,9 +92,6 @@ class GroundingDinoSAMSegment:
         #grounding_dino_model = load_groundingdino_model(grounding_dino_model)
         #
         # :TODO - if comfy.model_management.get_torch_device(), returns mps (apple silicon) switch to CPU 
-
-        dictionary_of_stuff = {"something":"A text message"}
-        PromptServer.instance.send_sync("my-message-handler", dictionary_of_stuff)
 
         device_mapping = {
             "Auto": check_mps_device(),
