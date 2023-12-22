@@ -491,6 +491,7 @@ def sam_segment_new(
     two_pass,
     sam_contrasts_helper,
     sam_brightness_helper,
+    sam_helper_show,
     device
 ):  
     if hasattr(sam_model, 'model_name') and 'hq' in sam_model.model_name:
@@ -508,6 +509,8 @@ def sam_segment_new(
     #
     sam_input_image = enhance_edges(image_np_rgb, alpha=sam_contrasts_helper, beta=sam_brightness_helper, edge_alpha=1.0) # versuche um die Erkennung zu verbessern
     #
+    if sam_helper_show: 
+        image_np_rgb = sam_input_image
     predictor.set_image(sam_input_image)
 
     transformed_boxes = predictor.transform.apply_boxes_torch( boxes, image_np.shape[:2]).to(device)

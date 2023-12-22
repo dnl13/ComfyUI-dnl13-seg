@@ -68,6 +68,7 @@ class GroundingDinoSAMSegment:
                     "max": 100,
                     "step": 1
                 }),
+                "sam_helper_show":('BOOLEAN', {"default":False}),
                 "dedicated_device": (["Auto", "CPU", "GPU"], ),
                 "optimize_prompt_for_dino":('BOOLEAN', {"default":True}),
                 "clean_mask_holes": ("INT", {
@@ -117,6 +118,7 @@ class GroundingDinoSAMSegment:
             two_pass,
             sam_contrasts_helper, 
             sam_brightness_helper,
+            sam_helper_show,
             background_color,
             optimize_prompt_for_dino=False,
             multimask=False, 
@@ -192,7 +194,7 @@ class GroundingDinoSAMSegment:
                 phrase_boxes[p] = {'box': [], 'mask': [], 'image': [], 'logits':[]}
 
             for i, phrase in enumerate(phrases):
-                sam_masks, masked_image = sam_segment_new(sam_model, item, boxes[i], clean_mask_holes, clean_mask_islands, mask_blur, mask_grow_shrink_factor, two_pass, sam_contrasts_helper, sam_brightness_helper, device)
+                sam_masks, masked_image = sam_segment_new(sam_model, item, boxes[i], clean_mask_holes, clean_mask_islands, mask_blur, mask_grow_shrink_factor, two_pass, sam_contrasts_helper, sam_brightness_helper, sam_helper_show, device)
                 masked_image = masked_image.unsqueeze(0)
                 phrase_boxes[phrase]['box'].append(boxes[i])
                 phrase_boxes[phrase]['mask'].append(sam_masks)
