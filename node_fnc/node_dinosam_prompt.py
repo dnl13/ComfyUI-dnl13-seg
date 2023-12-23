@@ -539,8 +539,8 @@ def sam_segment_new(
              # Zugriff auf die erste Box, falls mehrere Boxen vorhanden
             if sam_hint_threshold_helper != 0.0 :
                 combined_pre_mask = torch.max(pre_masks, dim=1)[0]
-                detection_points, detection_labels = gen_detection_hints_from_mask_area( combined_pre_mask, sam_hint_threshold_helper, height, width)
-                #detection_points, detection_labels = gen_detection_hints_from_bbox_area(combined_pre_mask, sam_hint_threshold_helper, transformed_boxes[0])
+                #detection_points, detection_labels = gen_detection_hints_from_mask_area( combined_pre_mask, sam_hint_threshold_helper, height, width)
+                detection_points, detection_labels = gen_detection_hints_from_bbox_area(combined_pre_mask, sam_hint_threshold_helper, transformed_boxes[0])
                 sam_grid_points, sam_grid_labels = detection_points, detection_labels
                 # Konvertieren Sie Listen in Tensoren
                 detection_points_tensor = torch.tensor(detection_points, dtype=torch.float32).to(device)
@@ -566,8 +566,8 @@ def sam_segment_new(
             
             if sam_hint_threshold_helper  != 0.0 :
                 combined_pre_mask = torch.max(pre_masks, dim=1)[0]
-                detection_points, detection_labels = gen_detection_hints_from_mask_area( combined_pre_mask, sam_hint_threshold_helper, height, width)
-                #detection_points, detection_labels = gen_detection_hints_from_bbox_area(combined_pre_mask, sam_hint_threshold_helper, transformed_boxes[0])
+                #detection_points, detection_labels = gen_detection_hints_from_mask_area( combined_pre_mask, sam_hint_threshold_helper, height, width)
+                detection_points, detection_labels = gen_detection_hints_from_bbox_area(combined_pre_mask, sam_hint_threshold_helper, transformed_boxes[0])
                 sam_grid_points, sam_grid_labels = detection_points, detection_labels
                 # Konvertieren Sie Listen in Tensoren
                 detection_points_tensor = torch.tensor(detection_points, dtype=torch.float32).to(device)
