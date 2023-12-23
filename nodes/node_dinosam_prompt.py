@@ -7,6 +7,7 @@ from ..utils.collection import get_local_filepath, check_mps_device
 from ..utils.image_processing import hex_to_rgb
 import re
 from collections import defaultdict
+import comfy.model_management
 
 """
 from Impact Pack:
@@ -432,4 +433,4 @@ class GroundingDinoSAMSegment:
         res_images_rgb = torch.cat(res_images_rgb, dim=0)
         res_masks = torch.cat(res_masks, dim=0)
 
-        return (res_images_rgba, res_images_rgb, res_masks, res_debug_images, )
+        return (res_images_rgba.to(comfy.model_management.get_torch_device()), res_images_rgb.to(comfy.model_management.get_torch_device()), res_masks, res_debug_images.to(comfy.model_management.get_torch_device()), )
