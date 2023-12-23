@@ -12,6 +12,13 @@ from .image_processing import split_image_mask
 from torchvision.transforms.v2 import Compose, ToImage, ToDtype
 to_tensor = Compose([ToImage(), ToDtype(torch.float32, scale=True)])
 
+
+def print_labels(to_return):
+    list = {
+        "label":"\033[92m(dnl13-seg)\033[0m",
+    }
+    return list[to_return]
+
 def to_numpy(tensor):
     return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
 

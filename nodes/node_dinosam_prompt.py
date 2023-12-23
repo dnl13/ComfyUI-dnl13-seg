@@ -3,11 +3,14 @@ import numpy as np
 from PIL import Image, ImageDraw
 import torchvision.transforms as transforms
 from ..node_fnc.node_dinosam_prompt import sam_segment, groundingdino_predict, sam_segment_new, enhance_edges
-from ..utils.collection import get_local_filepath, check_mps_device
+from ..utils.collection import check_mps_device, print_labels
 from ..utils.image_processing import hex_to_rgb
 import re
 from collections import defaultdict
 import comfy.model_management
+from tqdm import tqdm
+
+dnl13 = print_labels("label")
 
 """
 from Impact Pack:
@@ -275,12 +278,10 @@ class GroundingDinoSAMSegment:
         prompt_list = [e.strip() for e in prompt_list]
         prompt_list.pop()
         #
-        print("got prompt like this:", prompt_list)
-        #
-        #
+        print(f"{dnl13} got prompt like this:", prompt_list)
         #      
         output_mapping = {}
-        for index, item in enumerate(image):
+        for index, item in tqdm(enumerate(image), total=len(image), desc=f"{dnl13} analyizing batch", unit="img", ncols=100, colour='green'):
             item = Image.fromarray(np.clip(255. * item.cpu().numpy(), 0, 255).astype(np.uint8)).convert('RGBA')
             boxes, phrases, logits = groundingdino_predict(grounding_dino_model, item, prompt, box_threshold, upper_confidence_threshold, lower_confidence_threshold, device)           
 
@@ -328,7 +329,7 @@ class GroundingDinoSAMSegment:
         for info in max_masks_per_phrase.values():
             if info['num_masks'] > max_found_masks:
                 max_found_masks = info['num_masks']
-        print("maximum masks per frame depending on prompt detection:", max_found_masks)
+        print(f"{dnl13} maximum masks per frame depending on prompt detection:", max_found_masks)
 
         # Erstelle eine Liste mit allen Phrasen aus dem output_mapping
         all_phrases = set()
@@ -382,7 +383,7 @@ class GroundingDinoSAMSegment:
             data_sorted = {phrase: data[phrase] for phrase in unique_phrases if phrase in data}
             output_mapping[index] = data_sorted
 
-        print("found following unique_phrases in prompt:", unique_phrases)
+        print(f"{dnl13} found following unique_phrases in prompt:", unique_phrases)
 
         for index in sorted(output_mapping.keys()):
 

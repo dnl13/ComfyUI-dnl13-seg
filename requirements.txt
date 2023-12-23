@@ -5,3 +5,4 @@ opencv-python==4.7.0.72
 addict~=2.4.0
 yapf~=0.40.2
 timm~=0.9.11
+tqdm
