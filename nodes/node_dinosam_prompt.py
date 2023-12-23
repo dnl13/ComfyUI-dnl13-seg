@@ -429,8 +429,8 @@ class GroundingDinoSAMSegment:
                 if combined_mask is not None:
                     res_masks.append(combined_mask)
             
-        res_images_rgba = torch.cat(res_images_rgba, dim=0)
-        res_images_rgb = torch.cat(res_images_rgb, dim=0)
-        res_masks = torch.cat(res_masks, dim=0)
+        res_images_rgba = torch.cat(res_images_rgba, dim=0).to("cpu")
+        res_images_rgb = torch.cat(res_images_rgb, dim=0).to("cpu")
+        res_masks = torch.cat(res_masks, dim=0).to("cpu")
 
-        return (res_images_rgba.to(comfy.model_management.get_torch_device()), res_images_rgb.to(comfy.model_management.get_torch_device()), res_masks, res_debug_images.to(comfy.model_management.get_torch_device()), )
+        return (res_images_rgba, res_images_rgb, res_masks, res_debug_images, )
