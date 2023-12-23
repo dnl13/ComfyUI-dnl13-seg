@@ -9,6 +9,7 @@ from ..utils.collection import to_tensor
 import torchvision.transforms.v2 as v2
 import torchvision.transforms as transforms
 import torchvision.transforms.functional as TF
+import torch.nn.functional as F
 import random
 from ..libs.groundingdino.util.utils import get_phrases_from_posmap
 from ..libs.groundingdino.util.inference import Model, predict
@@ -21,39 +22,6 @@ from ..utils.image_processing import mask2cv, shrink_grow_mskcv, blur_mskcv, img
 from ..utils.collection import split_captions
 
 
-def enhance_edges(image_np_rgb, alpha=1.5, beta=50, edge_alpha=1.0):
-    """
-    Erhöht den Kontrast, die Helligkeit und die Kantenstärke des Bildes.
-
-    :param image_np_rgb: Eingabebild in NumPy-Array-Form.
-    :param alpha: Faktor für den Kontrast.
-        Wertebereich: Typischerweise zwischen 1.0 und 3.0.
-        Standardwert: 1.0 (keine Änderung des Kontrasts).
-        Hinweis: Werte größer als 1 erhöhen den Kontrast, während Werte zwischen 0 und 1 ihn verringern. Extrem hohe Werte können zu einer Sättigung führen, bei der Details verloren gehen.
-    :param beta: Wert für die Helligkeit.
-        Wertebereich: Kann positiv oder negativ sein, typischerweise zwischen -100 und 100.
-        Standardwert: 0 (keine Änderung der Helligkeit).
-        Hinweis: Positive Werte erhöhen die Helligkeit, negative Werte verringern sie. Zu hohe oder zu niedrige Werte können dazu führen, dass helle oder dunkle Bereiche keine Details mehr aufweisen.
-    :param edge_alpha: Faktor für die Kantenstärke.
-        Wertebereich: Normalerweise zwischen 0 und 1.
-        Standardwert: 1.0 (volle Stärke der Kanten).
-        Hinweis: Ein Wert von 0 würde keine Kanten hinzufügen, während ein Wert von 1 die Kanten deutlich hervorhebt. Wenn die Kanten zu stark hervorgehoben werden, kann das Bild überladen wirken und die Segmentierung beeinträchtigen.
-    :return: Angepasstes Bild als NumPy-Array.
-    """
-    # Adjust contrast and brightness
-    adjusted_image = np.clip(alpha * image_np_rgb.astype(np.float32) + beta, 0, 255).astype(np.uint8)
-    
-    # Convert to grayscale
-    gray = cv2.cvtColor(adjusted_image, cv2.COLOR_RGB2GRAY)
-    
-    # Apply edge detection
-    edges = cv2.Canny(gray, 100, 200)
-    edges_colored = cv2.cvtColor(edges, cv2.COLOR_GRAY2RGB)
-    
-    # Combine original image with edges
-    enhanced_image = cv2.addWeighted(adjusted_image, 1, edges_colored, edge_alpha, 0)
-
-    return enhanced_image
 
 def load_dino_image(image_pil):
     transform = v2.Compose([
@@ -64,108 +32,6 @@ def load_dino_image(image_pil):
     ])
     image, _ = transform(image_pil, None)  # 3, h, w
     return image
-
-"""
-def get_grounding_output(
-        model, 
-        image, 
-        caption, 
-        lower_threshold,
-        upper_threshold,    
-        optimize_prompt_for_dino, 
-        device, 
-        with_logits=True
-        ):
-    
-    # NOTE: not clear for what we can use text_threshold
-    text_threshold = lower_threshold 
-
-    #check if we want prompt optmiziation = replace sd ","" with dino "." 
-    if optimize_prompt_for_dino is not False:
-        if caption.endswith(","):
-          caption = caption[:-1]
-        caption = caption.replace(",", ".")
-
-    caption = caption.lower()
-    caption = caption.strip()
-    if not caption.endswith("."):
-        caption = caption + "."
-    model = model.to(device)
-    image = image.to(device)
-
-
-    if "|" in caption:
-        captions = split_captions(caption)
-        all_boxes = []
-        for caption in captions:
-            with torch.no_grad():
-                outputs = model(image[None], captions=[caption])
-            
-            logits = outputs["pred_logits"].cpu().sigmoid()[0]  # (nq, 256)
-            boxes = outputs["pred_boxes"].cpu()[0]  # (nq, 4)
-            logits.shape[0]
-
-            # filter output
-            logits_filt = logits.clone()
-            boxes_filt = boxes.clone()
-            filt_mask = (logits_filt.max(dim=1)[0] > lower_threshold) & (logits_filt.max(dim=1)[0] < upper_threshold)
-            logits_filt = logits_filt[filt_mask]  # num_filt, 256
-            boxes_filt = boxes_filt[filt_mask]  # num_filt, 4
-            #logits_filt.shape[0]
-
-            # get phrase
-            tokenlizer = model.tokenizer
-            tokenized = tokenlizer(caption)
-            # build pred
-            pred_phrases = []
-            for logit, box in zip(logits_filt, boxes_filt):
-                pred_phrase = get_phrases_from_posmap(logit > text_threshold, tokenized, tokenlizer)
-                pred_phrase = get_phrases_from_posmap(text_threshold, tokenized, tokenlizer)
-                if with_logits:
-                    pred_phrases.append(pred_phrase + f"({str(logit.max().item())[:4]})")
-                else:
-                    pred_phrases.append(pred_phrase)
-
-        # Concatenate all the boxes along the 0 dimension and return.
-        #boxes_filt_concat = torch.cat(all_boxes, dim=0)
-        #return boxes_filt_concat.to(device)
-    else:
-
-        with torch.no_grad():
-            outputs = model(image[None], captions=[caption])
-        
-        logits = outputs["pred_logits"].cpu().sigmoid()[0]  # (nq, 256)
-        boxes = outputs["pred_boxes"].cpu()[0]  # (nq, 4)
-        logits.shape[0]
-
-        # filter output
-        logits_filt = logits.clone()
-        boxes_filt = boxes.clone()
-        filt_mask = (logits_filt.max(dim=1)[0] > lower_threshold) & (logits_filt.max(dim=1)[0] < upper_threshold)
-        logits_filt = logits_filt[filt_mask]  # num_filt, 256
-        boxes_filt = boxes_filt[filt_mask]  # num_filt, 4
-        logits_filt.shape[0]
-
-        # get phrase
-        tokenlizer = model.tokenizer
-        tokenized = tokenlizer(caption)
-        # build pred
-        pred_phrases = []
-        for logit, box in zip(logits_filt, boxes_filt):
-            pred_phrase = get_phrases_from_posmap(logit > text_threshold, tokenized, tokenlizer)
-            if with_logits:
-                pred_phrases.append(pred_phrase + f"({str(logit.max().item())[:4]})")
-            else:
-                pred_phrases.append(pred_phrase)
-
-
-
-
-    return boxes_filt.to(device), pred_phrases
-"""
-
-
-
 
 def resize_mask(
         self, ref_mask: np.ndarray, longest_side: int = 256
@@ -227,32 +93,6 @@ def pad_mask(
         # Padding value defaults to '0' when the `np.pad`` mode is set to 'constant'.
         return np.pad(ref_mask, padding, mode="constant")
 
-def reference_to_sam_mask( ref_mask: np.ndarray, threshold: int = 127, pad_all_sides: bool = False ) -> np.ndarray:
-        """
-        Convert a grayscale mask to a binary mask, resize it to have its longest side equal to 256, and add padding to make it square.
-
-        Args:
-            ref_mask (np.ndarray): The grayscale mask to be processed.
-            threshold (int, optional): The threshold value for the binarization. Default is 127.
-            pad_all_sides (bool, optional): Whether to pad all sides of the image equally. If False, padding will be added to the bottom and right sides. Default is False.
-
-        Returns:
-            np.ndarray: The processed binary mask.
-        """
-
-        # Convert a grayscale mask to a binary mask.
-        # Values over the threshold are set to 1, values below are set to -1.
-        ref_mask = np.clip((ref_mask > threshold) * 2 - 1, -1, 1)
-
-        # Resize to have the longest side 256.
-        resized_mask, new_height, new_width = resize_mask(ref_mask)
-
-        # Add padding to make it square.
-        square_mask = pad_mask(resized_mask, new_height, new_width, pad_all_sides)
-
-        # Expand SAM mask's dimensions to 1xHxW (1x256x256).
-        return np.expand_dims(square_mask, axis=0)
-
 
 def denormalize_bbox(bbox, image_width, image_height):
     cx, cy, w, h = bbox
@@ -273,7 +113,6 @@ def denormalize_bbox(bbox, image_width, image_height):
 
     return xmin, ymin, xmax, ymax
 
-
 def xyxy_to_cxcywh(xyxy):
     xmin, ymin, xmax, ymax = xyxy
     w = xmax - xmin
@@ -281,7 +120,6 @@ def xyxy_to_cxcywh(xyxy):
     cx = xmin + w / 2
     cy = ymin + h / 2
     return cx, cy, w, h
-
 
 def resize_boxes(boxes_tensor, image_width, image_height, scale_factor=0.2):
     # Extrahiere die Werte aus dem Tensor
@@ -313,8 +151,6 @@ def resize_boxes(boxes_tensor, image_width, image_height, scale_factor=0.2):
     new_boxes_tensor = torch.tensor([[new_cx, new_cy, new_width, new_height]])
 
     return new_boxes_tensor
-
-
 
 def crop_image(image_transformed, box):
     xmin, ymin, xmax, ymax = box
@@ -427,7 +263,7 @@ def groundingdino_predict(dino_model,image, prompt,box_threshold,upper_confidenc
     filtered_boxes = torch.tensor(filtered_boxes_np)
     filtered_logits = torch.tensor(filtered_logits_np)
     filtered_tensor_xyxy = torch.tensor(filtered_tensor_xyxy_np)
-
+    """
     # draw Bounding Boxes to image for user debug
     duplicate_image = image.copy()
     draw = ImageDraw.Draw(duplicate_image)
@@ -473,11 +309,179 @@ def groundingdino_predict(dino_model,image, prompt,box_threshold,upper_confidenc
     tensor_image = transform(duplicate_image)
     tensor_image_expanded = tensor_image.unsqueeze(0)
     tensor_image_formated = tensor_image_expanded.permute(0, 2, 3, 1)
+    """
 
-    return filtered_tensor_xyxy, filtered_phrases, filtered_logits, tensor_image_formated
+    return filtered_tensor_xyxy, filtered_phrases, filtered_logits
 
 
 
+"""
+            MASKING WITH SAM 
+"""
+def enhance_edges(image_np_rgb, alpha=1.5, beta=50, edge_alpha=1.0):
+    """
+    Erhöht den Kontrast, die Helligkeit und die Kantenstärke des Bildes.
+
+    :param image_np_rgb: Eingabebild in NumPy-Array-Form.
+    :param alpha: Faktor für den Kontrast.
+        Wertebereich: Typischerweise zwischen 1.0 und 3.0.
+        Standardwert: 1.0 (keine Änderung des Kontrasts).
+        Hinweis: Werte größer als 1 erhöhen den Kontrast, während Werte zwischen 0 und 1 ihn verringern. Extrem hohe Werte können zu einer Sättigung führen, bei der Details verloren gehen.
+    :param beta: Wert für die Helligkeit.
+        Wertebereich: Kann positiv oder negativ sein, typischerweise zwischen -100 und 100.
+        Standardwert: 0 (keine Änderung der Helligkeit).
+        Hinweis: Positive Werte erhöhen die Helligkeit, negative Werte verringern sie. Zu hohe oder zu niedrige Werte können dazu führen, dass helle oder dunkle Bereiche keine Details mehr aufweisen.
+    :param edge_alpha: Faktor für die Kantenstärke.
+        Wertebereich: Normalerweise zwischen 0 und 1.
+        Standardwert: 1.0 (volle Stärke der Kanten).
+        Hinweis: Ein Wert von 0 würde keine Kanten hinzufügen, während ein Wert von 1 die Kanten deutlich hervorhebt. Wenn die Kanten zu stark hervorgehoben werden, kann das Bild überladen wirken und die Segmentierung beeinträchtigen.
+    :return: Angepasstes Bild als NumPy-Array.
+    """
+    # Adjust contrast and brightness
+    adjusted_image = np.clip(alpha * image_np_rgb.astype(np.float32) + beta, 0, 255).astype(np.uint8)
+    
+    # Convert to grayscale
+    gray = cv2.cvtColor(adjusted_image, cv2.COLOR_RGB2GRAY)
+    
+    # Apply edge detection
+    edges = cv2.Canny(gray, 100, 200)
+    edges_colored = cv2.cvtColor(edges, cv2.COLOR_GRAY2RGB)
+    
+    # Combine original image with edges
+    enhanced_image = cv2.addWeighted(adjusted_image, 1, edges_colored, edge_alpha, 0)
+
+    return enhanced_image
+
+def make_2d_mask(mask):
+    # Code borrowed from Impact-Pack https://github.com/ltdrdata/ComfyUI-Impact-Pack
+    if len(mask.shape) == 4:
+        return mask.squeeze(0).squeeze(0)
+    elif len(mask.shape) == 3:
+        return mask.squeeze(0)
+    return mask
+
+
+def gen_detection_hints_from_bbox_area(mask, threshold, bbox):
+    """
+    Generiert Erkennungshinweise innerhalb einer gegebenen Bounding Box basierend auf der Maske.
+
+    :param mask: Ein 2D-Tensor, der die Maske des Bildes darstellt.
+    :param threshold: Ein Schwellenwert, um zu entscheiden, ob ein Punkt als positiv oder negativ betrachtet wird.
+    :param bbox: Ein Tensor oder Array mit den Koordinaten der Bounding Box [x_min, y_min, x_max, y_max].
+    :return: Zwei Listen, eine für Punkte und eine für deren Labels.
+    """
+    logit_values, plabs, points = [], [], []
+    mask = make_2d_mask(mask)
+
+    x_min, y_min, x_max, y_max = map(int, bbox)
+    box_width = x_max - x_min
+    box_height = y_max - y_min
+    y_step = max(3, int(box_height / 20))
+    x_step = max(3, int(box_width / 20))
+
+    for i in range(y_min, y_max, y_step):
+        for j in range(x_min, x_max, x_step):
+            mask_i = int((i - y_min) * mask.shape[0] / box_height)
+            mask_j = int((j - x_min) * mask.shape[1] / box_width)
+            logit_values.append(mask[mask_i, mask_j].cpu())
+
+    logit_values = np.array(logit_values)
+    mean = np.mean(logit_values)
+    std = np.std(logit_values)
+    standardized_values = (logit_values - mean) / std
+    tanh_values = np.tanh(standardized_values)
+    rounded_values = np.round(tanh_values, 5)
+    rounded_values.tolist() 
+    for i in range(y_min, y_max, y_step):
+        for j in range(x_min, x_max, x_step):
+            index = ((i - y_min) // y_step) * (box_width // x_step) + ((j - x_min) // x_step)
+            if rounded_values[index] > threshold:
+                points.append((j, i))
+                plabs.append(1)
+            else:
+                points.append((j, i))
+                plabs.append(0)
+    return points, plabs
+
+
+def gen_detection_hints_from_mask_area(mask, threshold,  original_height, original_width):
+    """
+    Generiert Erkennungshinweise für das gesamte Bild basierend auf der gegebenen Maske.
+
+    :param mask: Ein 2D-Tensor, der die Maske des Bildes darstellt.
+    :param threshold: Ein Schwellenwert, um zu entscheiden, ob ein Punkt als positiv oder negativ betrachtet wird.
+    :param original_height: Die Höhe des Originalbildes.
+    :param original_width: Die Breite des Originalbildes.
+    :return: Zwei Listen, eine für Punkte und eine für deren Labels.
+    """
+    #threshold = threshold * 100
+    mask = make_2d_mask(mask)
+    # Passen Sie die Schrittgröße an die Originalbildgröße an
+    y_step = max(3, int(original_height / 20))
+    x_step = max(3, int(original_width / 20))
+
+    logit_values, plabs, points = [], [] ,[]
+
+    border_distance_height = int(original_height * 0.02)
+    border_distance_width = int(original_width * 0.02)
+
+    # gather logits 
+    for i in range(0, original_height, y_step):
+        for j in range(0, original_width, x_step):
+            mask_i = int(i * mask.shape[0] / original_height)
+            mask_j = int(j * mask.shape[1] / original_width)
+            logit_values.append(mask[mask_i, mask_j].cpu())
+
+    logit_values = np.array(logit_values)
+
+    # Standardisierung
+    mean = np.mean(logit_values)
+    std = np.std(logit_values)
+    standardized_values = (logit_values - mean) / std
+
+    # Anwendung der tanh-Funktion
+    tanh_values = np.tanh(standardized_values)
+
+    # Runden auf drei Dezimalstellen
+    rounded_values = np.round(tanh_values, 5)
+    rounded_values.tolist() 
+    
+    for i in range(0, original_height, y_step):
+        for j in range(0, original_width, x_step):
+            index = (i // y_step) * (original_width // x_step) + (j // x_step)
+            if rounded_values[index] > threshold:
+                points.append((j, i))
+                plabs.append(1)
+            else:
+                points.append((j, i))
+                plabs.append(0)
+    return points, plabs
+
+def reference_to_sam_mask( ref_mask: np.ndarray, threshold: int = 127, pad_all_sides: bool = False ) -> np.ndarray:
+        """
+        Convert a grayscale mask to a binary mask, resize it to have its longest side equal to 256, and add padding to make it square.
+
+        Args:
+            ref_mask (np.ndarray): The grayscale mask to be processed.
+            threshold (int, optional): The threshold value for the binarization. Default is 127.
+            pad_all_sides (bool, optional): Whether to pad all sides of the image equally. If False, padding will be added to the bottom and right sides. Default is False.
+
+        Returns:
+            np.ndarray: The processed binary mask.
+        """
+
+        # Convert a grayscale mask to a binary mask.
+        # Values over the threshold are set to 1, values below are set to -1.
+        ref_mask = np.clip((ref_mask > threshold) * 2 - 1, -1, 1)
+
+        # Resize to have the longest side 256.
+        resized_mask, new_height, new_width = resize_mask(ref_mask)
+
+        # Add padding to make it square.
+        square_mask = pad_mask(resized_mask, new_height, new_width, pad_all_sides)
+
+        # Expand SAM mask's dimensions to 1xHxW (1x256x256).
+        return np.expand_dims(square_mask, axis=0)
 
 
 def sam_segment_new(
@@ -491,6 +495,7 @@ def sam_segment_new(
     two_pass,
     sam_contrasts_helper,
     sam_brightness_helper,
+    sam_hint_threshold_helper,
     sam_helper_show,
     device
 ):  
@@ -507,10 +512,12 @@ def sam_segment_new(
     height, width = image_np.shape[:2]
     image_np_rgb = image_np[..., :3]
     #
+    sam_grid_points, sam_grid_labels = None, None
+    #
     sam_input_image = enhance_edges(image_np_rgb, alpha=sam_contrasts_helper, beta=sam_brightness_helper, edge_alpha=1.0) # versuche um die Erkennung zu verbessern
     #
-    if sam_helper_show: 
-        image_np_rgb = sam_input_image
+    #if sam_helper_show: 
+    #    image_np_rgb = sam_input_image
     predictor.set_image(sam_input_image)
 
     transformed_boxes = predictor.transform.apply_boxes_torch( boxes, image_np.shape[:2]).to(device)
@@ -522,18 +529,58 @@ def sam_segment_new(
     (np.ndarray): An array of shape CxHxW, where C is the number of masks and H=W=256. These low resolution logits can be passed to a subsequent iteration as mask input.
     """
 
+    # :NOTE - https://github.com/facebookresearch/segment-anything/issues/169 segement_anything got wrong floats instead of boolean mask_input=
+       
     if sam_is_hq is True:
         if two_pass is True: 
-            _, _ , pre_logits = predictor.predict_torch(point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input = None, multimask_output=True, return_logits=True, hq_token_only=False)
+            # first pass
+            pre_masks, _ , pre_logits = predictor.predict_torch(point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input = None, multimask_output=True, return_logits=True, hq_token_only=False)
+            
+             # Zugriff auf die erste Box, falls mehrere Boxen vorhanden
+            if sam_hint_threshold_helper != 0.0 :
+                combined_pre_mask = torch.max(pre_masks, dim=1)[0]
+                detection_points, detection_labels = gen_detection_hints_from_mask_area( combined_pre_mask, sam_hint_threshold_helper, height, width)
+                #detection_points, detection_labels = gen_detection_hints_from_bbox_area(combined_pre_mask, sam_hint_threshold_helper, transformed_boxes[0])
+                sam_grid_points, sam_grid_labels = detection_points, detection_labels
+                # Konvertieren Sie Listen in Tensoren
+                detection_points_tensor = torch.tensor(detection_points, dtype=torch.float32).to(device)
+                detection_labels_tensor = torch.tensor(detection_labels, dtype=torch.float32).to(device)
+                B = 1  # Bei einer einzelnen Bildvorhersage
+                N = detection_points_tensor.shape[0]
+                detection_points_tensor = detection_points_tensor.view(B, N, 2)
+                detection_labels_tensor = detection_labels_tensor.view(B, N)
+                
+            else:
+                detection_points_tensor = None
+                detection_labels_tensor = None
+            # second pass
             pre_logits = torch.mean(pre_logits, dim=1, keepdim=True)
-            masks, quality , logits = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input = pre_logits, multimask_output=False, hq_token_only=True)
+            masks, quality , logits = predictor.predict_torch( point_coords=detection_points_tensor, point_labels=detection_labels_tensor, boxes=transformed_boxes, mask_input = pre_logits, multimask_output=False, hq_token_only=True)
+
         else:
-            masks,quality , logits = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False, hq_token_only=True)
+            masks, quality , logits = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False, hq_token_only=True)
     else:
-        # :NOTE - https://github.com/facebookresearch/segment-anything/issues/169 segement_anything got wrong floats instead of boolean mask_input=
         if two_pass is True: 
-            tmpmasks, _ , pre_logits = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False)
-            masks, quality , logits = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=pre_logits, multimask_output=False)
+            # first pass
+            pre_masks, _ , pre_logits = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False)
+            
+            if sam_hint_threshold_helper  != 0.0 :
+                combined_pre_mask = torch.max(pre_masks, dim=1)[0]
+                detection_points, detection_labels = gen_detection_hints_from_mask_area( combined_pre_mask, sam_hint_threshold_helper, height, width)
+                #detection_points, detection_labels = gen_detection_hints_from_bbox_area(combined_pre_mask, sam_hint_threshold_helper, transformed_boxes[0])
+                sam_grid_points, sam_grid_labels = detection_points, detection_labels
+                # Konvertieren Sie Listen in Tensoren
+                detection_points_tensor = torch.tensor(detection_points, dtype=torch.float32).to(device)
+                detection_labels_tensor = torch.tensor(detection_labels, dtype=torch.float32).to(device)
+                B = 1  # Bei einer einzelnen Bildvorhersage
+                N = detection_points_tensor.shape[0]
+                detection_points_tensor = detection_points_tensor.view(B, N, 2)
+                detection_labels_tensor = detection_labels_tensor.view(B, N)
+            else:
+                detection_points_tensor = None
+                detection_labels_tensor = None
+            # second pass
+            masks, quality , logits = predictor.predict_torch( point_coords=detection_points_tensor, point_labels=detection_labels_tensor, boxes=transformed_boxes, mask_input=pre_logits, multimask_output=False)
         else:
             masks, quality , logits = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False)
 
@@ -562,7 +609,8 @@ def sam_segment_new(
     mask_ts = mask_ts.unsqueeze(0)
     mask_ts = mask_ts.permute(0, 2, 3, 1) 
 
-    return msk, image_with_alpha_tensor
+    #sam_grid_points, sam_grid_labels = detection_points_tensor, detection_labels_tensor
+    return msk, image_with_alpha_tensor, sam_grid_points, sam_grid_labels
 
 def sam_segment(
     sam_model,

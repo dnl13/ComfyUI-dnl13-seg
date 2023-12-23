@@ -1,11 +1,97 @@
 import torch
 import numpy as np
-from PIL import Image
-from ..node_fnc.node_dinosam_prompt import sam_segment, groundingdino_predict, sam_segment_new
+from PIL import Image, ImageDraw
+import torchvision.transforms as transforms
+from ..node_fnc.node_dinosam_prompt import sam_segment, groundingdino_predict, sam_segment_new, enhance_edges
 from ..utils.collection import get_local_filepath, check_mps_device
 from ..utils.image_processing import hex_to_rgb
 import re
 from collections import defaultdict
+
+"""
+from Impact Pack:
+
+what are SEG
+SEG = namedtuple("SEG",
+                 ['cropped_image', 'cropped_mask', 'confidence', 'crop_region', 'bbox', 'label', 'control_net_wrapper'],
+                 defaults=[None])
+
+"""
+
+def createDebugImage( image, dino_bbox, dino_pharses, dino_logits, toggle_sam_debug, sam_contrasts_helper, sam_brightness_helper, sam_hint_grid_points, sam_hint_grid_labels):
+    width, height = image.size
+    debug_image = image.copy().convert('RGB')
+    debug_image_np = np.array(debug_image)
+
+    if toggle_sam_debug:
+        # enhance_edges()
+        debug_image_np = enhance_edges(debug_image_np, alpha=sam_contrasts_helper, beta=sam_brightness_helper, edge_alpha=1.0)
+        debug_image = Image.fromarray(debug_image_np)
+
+        if sam_hint_grid_points != [None] and sam_hint_grid_points != [None]: 
+
+            # Erstellen einer transparenten Ebene
+            transparent_layer = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(debug_image)
+
+            for index, bbox in enumerate(dino_bbox):
+                x_min, y_min, x_max, y_max = map(int, bbox)
+                box_width = x_max - x_min
+                box_height = y_max - y_min
+
+                # Definieren Sie die Schrittgrößen für die Grid-Erstellung
+                x_step = max(3, int(box_width / 20))
+                y_step = max(3, int(box_height / 20))
+
+                # Erstellen Sie Punkte innerhalb der Bounding Box
+                grid_points = []
+                for y in range(y_min, y_max, y_step):
+                    for x in range(x_min, x_max, x_step):
+                        grid_points.append((x, y))
+                    if sam_hint_grid_labels[index] is not None:
+                        for point, label in zip(grid_points, sam_hint_grid_labels[index]):
+                            #print( f" {point} : {label}" )
+                            x, y = point
+                            if label > 0:
+                                color = (0, 255, 0, 128)  # Halbtransparentes Grün
+                            else:
+                                color = (255, 0, 0, 128)  # Halbtransparentes Rot
+                            # Zeichnen eines halbtransparenten Kreises
+                            draw.ellipse((x-2, y-2, x+2, y+2), fill=color)
+            # Kombinieren der transparenten Ebene mit dem Originalbild
+            image_with_transparent_layer = Image.alpha_composite(debug_image.convert('RGBA'), transparent_layer)
+            debug_image = image_with_transparent_layer
+        # Anzeigen des Bildes
+        #image_with_transparent_layer.show()
+    else:
+        debug_image = Image.fromarray(debug_image_np)
+
+    draw = ImageDraw.Draw(debug_image)
+    text_padding = 2.5  # Anpassbares Padding
+    for bbox, conf, phrase in zip(dino_bbox, dino_logits, dino_pharses):
+        bbox = tuple(map(int, bbox))
+        draw.rectangle(bbox, outline="red", width=2)
+        
+        # Erstelle das Rechteck für den Hintergrund des Textes mit Padding
+        text_bg_x1 = bbox[0]
+        text_bg_y1 = bbox[1]
+        text_bg_x2 = bbox[0] + 120  # Beispielbreite des Hintergrunds
+        text_bg_y2 = bbox[1] + 20   # Beispielhöhe des Hintergrunds
+        draw.rectangle(((text_bg_x1, text_bg_y1), (text_bg_x2, text_bg_y2)), fill="red")  # Hintergrund für den Text
+
+        # Textkoordinaten mit Padding
+        text_x = bbox[0] + text_padding
+        text_y = bbox[1] + text_padding
+
+        draw.text((text_x, text_y), f"{phrase}: {conf:.2f}", fill="white")  # Weißer Text auf rotem Hintergrund
+
+    transform = transforms.ToTensor()
+    tensor_image = transform(debug_image)
+    tensor_image_expanded = tensor_image.unsqueeze(0)
+    tensor_image_formated = tensor_image_expanded.permute(0, 2, 3, 1)
+    
+    return tensor_image_formated
+
 
 
 def blend_rgba_with_background(rgba_tensor, bg_color_tensor):
@@ -57,7 +143,7 @@ class GroundingDinoSAMSegment:
                 "two_pass": ('BOOLEAN', {"default":False}),
 
                 "sam_contrasts_helper": ("FLOAT", {
-                    "default": 1.0,
+                    "default": 1.25,
                     "min": 0,
                     "max": 3.0,
                     "step": 0.01
@@ -67,6 +153,12 @@ class GroundingDinoSAMSegment:
                     "min": -100,
                     "max": 100,
                     "step": 1
+                }),
+                "sam_hint_threshold_helper":("FLOAT", {
+                    "default": 0.00,
+                    "min": -1.00,
+                    "max": 1.00,
+                    "step": 0.001
                 }),
                 "sam_helper_show":('BOOLEAN', {"default":False}),
                 "dedicated_device": (["Auto", "CPU", "GPU"], ),
@@ -118,6 +210,7 @@ class GroundingDinoSAMSegment:
             two_pass,
             sam_contrasts_helper, 
             sam_brightness_helper,
+            sam_hint_threshold_helper,
             sam_helper_show,
             background_color,
             optimize_prompt_for_dino=False,
@@ -147,6 +240,8 @@ class GroundingDinoSAMSegment:
         empty_mask = empty_mask / 255.0
         #
         res_images_rgba , res_images_rgb ,res_masks , res_boxes, res_debug_images, unique_phrases = [],[],[],[],[],[]
+
+        sam_hint_threshold_points, sam_hint_threshold_labels = [], []
         #
         bg_color_rgb = hex_to_rgb(background_color)
         bg_color_rgb_normalized = torch.tensor([value / 255.0 for value in bg_color_rgb], dtype=torch.float32)
@@ -157,14 +252,14 @@ class GroundingDinoSAMSegment:
         transparent_image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
         transparent_image_np = np.array(transparent_image)
         transparent_image_tensor = torch.from_numpy(transparent_image_np).permute(2, 0, 1).unsqueeze(0)
-        transparent_image_tensor = transparent_image_tensor.permute(0, 2, 3, 1)
-        transparent_maske_tensor = torch.zeros(1, height, width)
-        empty_box = torch.zeros((1, 4)) 
-        empty_logits = torch.zeros((1, 1)) 
+        transparent_image_tensor = transparent_image_tensor.permute(0, 2, 3, 1).to(device)
+        transparent_maske_tensor = torch.zeros(1, height, width).to(device)
+        empty_box = torch.zeros((1, 4)) .to(device)
+        empty_logits = torch.zeros((1, 1)) .to(device)
         #
         bg_color_tensor = bg_color_rgb_normalized.clone().detach()
         bg_color_tensor = bg_color_tensor.view(1, 1, 1, 3)  # Form anpassen für Broadcasting
-        bg_color_tensor = bg_color_tensor.expand(1, height, width, 3) 
+        bg_color_tensor = bg_color_tensor.expand(1, height, width, 3).to(device) 
         #
         if optimize_prompt_for_dino is not False:
             if prompt.endswith(","):
@@ -186,22 +281,38 @@ class GroundingDinoSAMSegment:
         output_mapping = {}
         for index, item in enumerate(image):
             item = Image.fromarray(np.clip(255. * item.cpu().numpy(), 0, 255).astype(np.uint8)).convert('RGBA')
-            boxes, phrases, logits, debug_image = groundingdino_predict(grounding_dino_model, item, prompt, box_threshold, upper_confidence_threshold, lower_confidence_threshold, device)
-            res_debug_images.extend(debug_image)
+            boxes, phrases, logits = groundingdino_predict(grounding_dino_model, item, prompt, box_threshold, upper_confidence_threshold, lower_confidence_threshold, device)           
 
             phrase_boxes = {}
             for p in phrases:
                 phrase_boxes[p] = {'box': [], 'mask': [], 'image': [], 'logits':[]}
 
             for i, phrase in enumerate(phrases):
-                sam_masks, masked_image = sam_segment_new(sam_model, item, boxes[i], clean_mask_holes, clean_mask_islands, mask_blur, mask_grow_shrink_factor, two_pass, sam_contrasts_helper, sam_brightness_helper, sam_helper_show, device)
+                sam_masks, masked_image, sam_grid_points, sam_grid_labels  = sam_segment_new(sam_model, item, boxes[i], clean_mask_holes, clean_mask_islands, mask_blur, mask_grow_shrink_factor, two_pass, sam_contrasts_helper, sam_brightness_helper,sam_hint_threshold_helper, sam_helper_show, device)
                 masked_image = masked_image.unsqueeze(0)
-                phrase_boxes[phrase]['box'].append(boxes[i])
-                phrase_boxes[phrase]['mask'].append(sam_masks)
-                phrase_boxes[phrase]['image'].append(masked_image)
-                phrase_boxes[phrase]['logits'].append(logits[i])
+                phrase_boxes[phrase]['box'].append(boxes[i].to(device))
+                phrase_boxes[phrase]['mask'].append(sam_masks.to(device))
+                phrase_boxes[phrase]['image'].append(masked_image.to(device))
+                phrase_boxes[phrase]['logits'].append(logits[i].to(device))
+                sam_hint_threshold_points.append(sam_grid_points)
+                sam_hint_threshold_labels.append(sam_grid_labels)
 
             output_mapping[index] = phrase_boxes
+
+            tensor_image_formated = createDebugImage( 
+                item, 
+                boxes, 
+                phrases, 
+                logits, 
+                toggle_sam_debug=sam_helper_show, 
+                sam_contrasts_helper=sam_contrasts_helper, 
+                sam_brightness_helper=sam_brightness_helper, 
+                #sam_hint_threshold_helper=sam_hint_threshold_helper,
+                sam_hint_grid_points=sam_hint_threshold_points,
+                sam_hint_grid_labels=sam_hint_threshold_labels
+                )
+            res_debug_images.extend(tensor_image_formated)
+  
 
         phrase_mask_count = defaultdict(lambda: defaultdict(int))
         for index, data in output_mapping.items():
