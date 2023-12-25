@@ -225,7 +225,10 @@ class GroundingDinoSAMSegment:
         #load Grounding Dino Model
         #grounding_dino_model = load_groundingdino_model(grounding_dino_model)
         #
-        # :TODO - if comfy.model_management.get_torch_device(), returns mps (apple silicon) switch to CPU 
+        # TODO: - if comfy.model_management.get_torch_device(), returns mps (apple silicon) switch to CPU 
+        # TODO: PERFORMANCE 
+        #... nach ca75 bildern bios 80 bildern wird irgend wie der cpu runtergefahren.. 
+        # Das muss  
 
         device_mapping = {
             "Auto": check_mps_device(),
