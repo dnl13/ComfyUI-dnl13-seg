@@ -474,7 +474,7 @@ class GroundingDinoSAMSegment:
 
 
         #VAEencode( vae, pixels, mask, grow_mask_by=6))
-        if vae is not None:
+        if vae is not None and multimask is False:
             res_inpaint_latent = res_inpaint_latent[0]
         else: 
             empty_latent = torch.zeros([img_batch, 4, img_height // 8, img_width // 8], device=device)
