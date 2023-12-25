@@ -1,4 +1,5 @@
 import torch
+import math
 import numpy as np
 from PIL import Image, ImageDraw
 import torchvision.transforms as transforms
@@ -21,6 +22,36 @@ SEG = namedtuple("SEG",
                  defaults=[None])
 
 """
+
+def VAEencode(vae, pixels, mask, device, grow_mask_by=6):
+        x = (pixels.shape[1] // 8) * 8
+        y = (pixels.shape[2] // 8) * 8
+        mask = torch.nn.functional.interpolate(mask.reshape((-1, 1, mask.shape[-2], mask.shape[-1])), size=(pixels.shape[1], pixels.shape[2]), mode="bilinear")
+
+        pixels = pixels.clone()
+        if pixels.shape[1] != x or pixels.shape[2] != y:
+            x_offset = (pixels.shape[1] % 8) // 2
+            y_offset = (pixels.shape[2] % 8) // 2
+            pixels = pixels[:,x_offset:x + x_offset, y_offset:y + y_offset,:]
+            mask = mask[:,:,x_offset:x + x_offset, y_offset:y + y_offset]
+
+        #grow mask by a few pixels to keep things seamless in latent space
+        if grow_mask_by == 0:
+            mask_erosion = mask
+        else:
+            kernel_tensor = torch.ones((1, 1, grow_mask_by, grow_mask_by))
+            padding = math.ceil((grow_mask_by - 1) / 2)
+            mask_erosion = torch.clamp(torch.nn.functional.conv2d(mask.to(device).round(), kernel_tensor.to(device), padding=padding), 0, 1)
+
+        m = (1.0 - mask.round()).squeeze(1)
+        pixels = pixels.to(device)
+        for i in range(3):
+            pixels[:,:,:,i] -= 0.5
+            pixels[:,:,:,i] *= m
+            pixels[:,:,:,i] += 0.5
+        t = vae.encode(pixels)
+        #return t
+        return {"samples":t, "noise_mask": (mask_erosion[:,:,:x,:y].round())}
 
 def createDebugImage( image, dino_bbox, dino_pharses, dino_logits, toggle_sam_debug, sam_contrasts_helper, sam_brightness_helper, sam_hint_grid_points, sam_hint_grid_labels):
     width, height = image.size
@@ -192,11 +223,14 @@ class GroundingDinoSAMSegment:
                 }), 
                 "background_color": ("STRING", {"default": "#00FF00","multiline": False}),
             },
+            "optional":{
+                "vae": ("VAE", ),
+            }
         }
     CATEGORY = "dnl13"
     FUNCTION = "main"
-    RETURN_TYPES = ("IMAGE", "IMAGE", "MASK", "IMAGE")
-    RETURN_NAMES = ("RGBA_Images", "RGB_Images (with Background Color)", "Masks", "DINO Image Detections Debug (rgb)")
+    RETURN_TYPES = ("IMAGE", "IMAGE", "MASK", "IMAGE", "LATENT",)
+    RETURN_NAMES = ("RGBA_Images", "RGB_Images (with Background Color)", "Masks", "DINO Image Detections Debug (rgb)", "Latent for Inapaint (VAE required)")
 
     def main(
             self, 
@@ -219,7 +253,8 @@ class GroundingDinoSAMSegment:
             background_color,
             optimize_prompt_for_dino=False,
             multimask=False, 
-            dedicated_device="Auto"
+            dedicated_device="Auto",
+            vae=None,
             ):
         #
         #load Grounding Dino Model
@@ -243,7 +278,7 @@ class GroundingDinoSAMSegment:
         empty_mask = torch.zeros((1, 1, img_height, img_width), dtype=torch.float32) # [B,C,H,W]
         empty_mask = empty_mask / 255.0
         #
-        res_images_rgba , res_images_rgb ,res_masks , res_boxes, res_debug_images, unique_phrases = [],[],[],[],[],[]
+        res_images_rgba , res_images_rgb ,res_masks , res_boxes, res_debug_images, unique_phrases, res_inpaint_latent = [],[],[],[],[],[],[]
 
         sam_hint_threshold_points, sam_hint_threshold_labels = [], []
         #
@@ -429,9 +464,26 @@ class GroundingDinoSAMSegment:
 
                 if combined_mask is not None:
                     res_masks.append(combined_mask)
-            
+
+                if vae is not None:
+                    if mask_grow_shrink_factor <= 6:
+                        mask_grow_shrink_factor = 6 
+                    let_test = VAEencode( vae=vae, pixels=image, mask=res_masks[0], device=device, grow_mask_by=mask_grow_shrink_factor)
+                    res_inpaint_latent.append(let_test)
+
+
+
+        #VAEencode( vae, pixels, mask, grow_mask_by=6))
+        if vae is not None:
+            res_inpaint_latent = res_inpaint_latent[0]
+        else: 
+            empty_latent = torch.zeros([img_batch, 4, img_height // 8, img_width // 8], device=device)
+            res_inpaint_latent= {"samples":empty_latent}
+        
         res_images_rgba = torch.cat(res_images_rgba, dim=0).to("cpu")
         res_images_rgb = torch.cat(res_images_rgb, dim=0).to("cpu")
         res_masks = torch.cat(res_masks, dim=0).to("cpu")
 
-        return (res_images_rgba, res_images_rgb, res_masks, res_debug_images, )
+
+
+        return (res_images_rgba, res_images_rgb, res_masks, res_debug_images, res_inpaint_latent, )
