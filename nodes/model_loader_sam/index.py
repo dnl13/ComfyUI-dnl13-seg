@@ -46,3 +46,21 @@ def load_sam_model(model_name ):
         sam.model_name = model_file_name
 
     return sam
+
+
+
+class SAMModelLoader:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "model_name": (list_sam_model(), ),
+            },
+        }
+    CATEGORY = "dnl13/model_loaders"
+    FUNCTION = "main"
+    RETURN_TYPES = ("SAM_MODEL", )
+
+    def main(self, model_name, use_cpu=False):
+        sam_model = load_sam_model(model_name)
+        return (sam_model, )

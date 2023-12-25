@@ -38,8 +38,7 @@ def load_groundingdino_model(model_name):
         get_local_filepath(
             groundingdino_model_list[model_name]["model_url"],
             groundingdino_model_dir,
-        ),
-        map_location=check_mps_device()
+        )
     )
             
     dino.load_state_dict(local_groundingdino_clean_state_dict(
@@ -49,3 +48,21 @@ def load_groundingdino_model(model_name):
 
 def list_groundingdino_model():
     return list(groundingdino_model_list.keys())
+
+
+class GroundingDinoModelLoaderV1:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "model_name": (list_groundingdino_model(), ),
+            },
+        }
+    CATEGORY = "dnl13/model_loaders"
+    FUNCTION = "main"
+    RETURN_TYPES = ("GROUNDING_DINO_MODEL", )
+
+    def main(self, model_name):
+        dino_model = load_groundingdino_model(model_name)
+        return (dino_model, )
+
