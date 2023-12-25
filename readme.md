@@ -1,3 +1,6 @@
+
+### **WARNING! The documentation is not up to date. I will update it shortly.**
+<hr>
 ## Why?
 
 After discovering [@storyicon](https://github.com/storyicon) implementation [here](https://github.com/storyicon/comfyui_segment_anything/) of Segment Anything, I realized its potential as a powerful tool for ComfyUI if implemented correctly. I delved into the SAM and Dino models. 
