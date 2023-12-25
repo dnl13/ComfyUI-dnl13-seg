@@ -7,7 +7,7 @@ from .nodes.model_loader_sam import SAMModelLoader
 NODES_CONFIG = {
     "model_loader_dino": ['GroundingDinoModelLoaderV1'],
     "model_loader_sam": ['SAMModelLoader'],
-    "universal_lazy_segmentation": ['Lazy_Mask_Segmentation'],
+    "universal_lazy_segmentation": ['LazyMaskSegmentation'],
     "utils_batch_selector": ['BatchSelector'],
     "utils_greenscreen": ['GreenscreenGenerator'],
     "vision_clip_segementation": ['ClipSegmentationProcessor'],
