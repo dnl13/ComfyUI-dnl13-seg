@@ -2,11 +2,8 @@ import torch
 import numpy as np
 from PIL import Image
 
-#from ..libs.sam_hq.automatic import SamAutomaticMaskGeneratorHQ
-#from ..libs.sam_hq.segment_anything.automatic_mask_generator import SamAutomaticMaskGenerator
-from ..utils.collection  import to_tensor
-#from ..libs.sam_hq.segment_anything_hq import SamAutomaticMaskGenerator
-from ..libs.sam_hq.automatic import SamAutomaticMaskGenerator
+from ...utils.collection  import to_tensor
+from ...libs.sam_hq.automatic import SamAutomaticMaskGenerator
 
 
 
