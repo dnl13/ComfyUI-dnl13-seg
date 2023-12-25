@@ -156,3 +156,4 @@ cython_debug/
 # sam-hq/
 dinov2/
 !nodes/dinov2/
+bck/
