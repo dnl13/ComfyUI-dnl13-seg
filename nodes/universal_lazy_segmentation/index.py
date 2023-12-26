@@ -6,6 +6,7 @@ from collections import defaultdict
 from ...utils.helper_device import list_available_devices, get_device
 from ...utils.helper_cmd import print_labels
 from ...utils.helper_img_utils import hex_to_rgb, blend_rgba_with_background, createDebugImage
+from ...utils.comfy_vae_encode_inpaint import VAEencode
 from ..vision_grounding_dino.grounding_dino_predict import groundingdino_predict
 
 #Print Labels holen
@@ -96,16 +97,20 @@ class LazyMaskSegmentation:
                 }),
 
                 "background_color": ("STRING", {"default": "#00FF00", "multiline": False}),
+                
             },
+            "optional":{
+                "vae": ("VAE", ),
+            }
         }
     CATEGORY = "dnl13"
     FUNCTION = "main"
-    RETURN_TYPES = ("IMAGE", "IMAGE", "MASK", "IMAGE")
-    RETURN_NAMES = ("RGBA_Images", "RGB_Images (with Background Color)",
-                    "Masks", "DINO Image Detections Debug (rgb)")
+    RETURN_TYPES = ("IMAGE", "IMAGE", "MASK", "IMAGE", "LATENT",)
+    RETURN_NAMES = ("RGBA_Images", "RGB_Images (with Background Color)", "Masks", "DINO Image Detections Debug (rgb)", "Latent for Inapaint (VAE required)")
 
     def main(
         self,
+        vae=None, # Optional
         sam_model=None,
         grounding_dino_model=None,
         image=None,
@@ -201,11 +206,13 @@ class LazyMaskSegmentation:
                 toggle_sam_debug=sam_helper_show, 
                 sam_contrasts_helper=sam_contrasts_helper, 
                 sam_brightness_helper=sam_brightness_helper, 
+                #sam_hint_threshold_helper=sam_hint_threshold_helper,
                 sam_hint_grid_points=sam_hint_threshold_points,
                 sam_hint_grid_labels=sam_hint_threshold_labels
                 )
             res_debug_images.extend(tensor_image_formated)
-        
+  
+
         phrase_mask_count = defaultdict(lambda: defaultdict(int))
         for index, data in output_mapping.items():
             for phrase, values in data.items():
@@ -319,10 +326,22 @@ class LazyMaskSegmentation:
 
                 if combined_mask is not None:
                     res_masks.append(combined_mask)
-            
+
+                if vae is not None:
+                    if mask_grow_shrink_factor <= 6:
+                        mask_grow_shrink_factor = 6 
+                    let_test = VAEencode( vae=vae, pixels=image, mask=res_masks[0], device=device, grow_mask_by=mask_grow_shrink_factor)
+                    res_inpaint_latent.append(let_test)
+
+        #VAEencode( vae, pixels, mask, grow_mask_by=6))
+        if vae is not None and multimask is False:
+            res_inpaint_latent = res_inpaint_latent[0]
+        else: 
+            empty_latent = torch.zeros([img_batch, 4, img_height // 8, img_width // 8], device=device)
+            res_inpaint_latent= {"samples":empty_latent}
+        
         res_images_rgba = torch.cat(res_images_rgba, dim=0).to("cpu")
         res_images_rgb = torch.cat(res_images_rgb, dim=0).to("cpu")
         res_masks = torch.cat(res_masks, dim=0).to("cpu")
 
-        res_images_rgba, res_images_rgb, res_masks, res_debug_images = None, None, None, None
-        return (res_images_rgba, res_images_rgb, res_masks, res_debug_images, )
+        return (res_images_rgba, res_images_rgb, res_masks, res_debug_images, res_inpaint_latent, )
