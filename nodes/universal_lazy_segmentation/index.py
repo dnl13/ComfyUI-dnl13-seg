@@ -4,7 +4,7 @@ from tqdm import tqdm
 from PIL import Image
 from collections import defaultdict
 from ...utils.helper_device import list_available_devices, get_device
-from ...utils.helper_cmd import print_labels
+from ...utils.helper_cmd_and_path import print_labels
 from ...utils.helper_img_utils import hex_to_rgb, blend_rgba_with_background, createDebugImage
 from ...utils.comfy_vae_encode_inpaint import VAEencode
 from ..vision_grounding_dino.grounding_dino_predict import groundingdino_predict

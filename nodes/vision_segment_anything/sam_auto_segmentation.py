@@ -4,7 +4,6 @@ from PIL import Image
 
 from segment_anything.utils.amg import  remove_small_regions,build_point_grid, batched_mask_to_box,uncrop_points
 
-from ...utils.collection  import to_tensor
 from ...libs.sam_hq.automatic import SamAutomaticMaskGenerator
 from ...libs.sam_hq.predictorHQ import SamPredictor as SamPredictorHQ
 from ...libs.sam_hq.predictor import SamPredictor 
@@ -12,7 +11,8 @@ from ...libs.sam_hq.predictor import SamPredictor
 from ...utils.helper_img_utils import enhance_edges, make_2d_mask, mask2cv, adjust_cvmask_size, blur_cvmask, split_image_mask, img_combine_mask_rgba
 #
 
-
+from torchvision.transforms.v2 import Compose, ToImage, ToDtype
+to_tensor = Compose([ToImage(), ToDtype(torch.float32, scale=True)])
 
 
 
