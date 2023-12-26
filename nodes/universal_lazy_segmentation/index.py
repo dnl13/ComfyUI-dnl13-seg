@@ -1,8 +1,21 @@
+import torch
+import numpy as np
+from tqdm import tqdm
+from PIL import Image
+from collections import defaultdict
+from ...utils.helper_device import list_available_devices, get_device
+from ...utils.helper_cmd import print_labels
+from ...utils.helper_img_utils import hex_to_rgb, blend_rgba_with_background, createDebugImage
+from ..vision_grounding_dino.grounding_dino_predict import groundingdino_predict
 
+#Print Labels holen
+dnl13 = print_labels("dnl13")
 
 class LazyMaskSegmentation:
+
     @classmethod
     def INPUT_TYPES(cls):
+        available_devices = list_available_devices()
         return {
             "required": {
                 "sam_model": ('SAM_MODEL', {}),
@@ -53,7 +66,7 @@ class LazyMaskSegmentation:
                 }),
                 "sam_helper_show": ('BOOLEAN', {"default": False}),
 
-                "dedicated_device": (["Auto", "CPU", "GPU"], ),
+                "dedicated_device": (available_devices, ),
 
                 "clean_mask_holes": ("INT", {
                     "default": 64,
@@ -113,18 +126,203 @@ class LazyMaskSegmentation:
         mask_grow_shrink_factor=0,
         background_color="#00FF00"
     ):
-        device_mapping = {
-            "Auto": check_mps_device(),
-            "CPU": torch.device("cpu"),
-            "GPU": torch.device("cuda")
-        }
-        device = device_mapping.get(dedicated_device)
-        #
+        # Zu ausführendes Gerät auswählen und setzen
+        device = get_device(dedicated_device)
+
+        # Bild Tensor informationen
+        img_batch, img_height, img_width, img_channel = image.shape
+               
+        # Konvertiere den Hex-Farbcode direkt in einen normalisierten Tensor
+        bg_color_rgb = hex_to_rgb(background_color)
+        bg_color_rgb_normalized = torch.tensor([value / 255.0 for value in bg_color_rgb], dtype=torch.float32)
+        bg_color_tensor = torch.tensor([value / 255.0 for value in bg_color_rgb], dtype=torch.float32).to(device)
+        bg_color_tensor = bg_color_tensor.view(1, 1, 1, 3).expand(1, img_height, img_width, 3)
+        
+        # Erstelle ein transparentes Bild 
+        transparent_image = Image.new("RGBA", (img_width, img_height), (0, 0, 0, 0))
+        transparent_image_np = np.zeros((img_height, img_width, 4), dtype=np.uint8)
+        transparent_image_tensor = torch.zeros(1, img_height, img_width, 4, dtype=torch.float32)
+        
+        # Erstelle ein leere Maske 
+        transparent_maske_tensor = torch.zeros( 1, img_height, img_width).to(device)
+
+        # Erstelle ein leere BBox
+        empty_box = torch.zeros((1, 4)) .to(device)
+
+        # Erstelle ein leere Logits Tensor
+        empty_logits = torch.zeros((1, 1)) .to(device)
+        
+        # Eingabe Prompt für Verarbeitung vorbereiten 
+        prompt = prompt.strip().lower()
+        prompt_list = [p.strip() for p in prompt.split(',') if p.strip()]
+
+        # Den User über unser Prompt informieren: 
+        print(f"{dnl13} got prompt like this:", prompt_list)
+
+        # Nötige Listen initialisieren die für den Prozzess benötigt werden
+        res_images_rgba, res_images_rgb, res_masks = [], [], []
+        res_boxes, res_debug_images = [], []
+        sam_hint_threshold_points, sam_hint_threshold_labels = [], []
+
+        # Sammel Dict für Ouptun gennerierung
+        output_mapping = {}
+
+        # Modelle auf Geräte verschieben und in evaluierung schalten
         grounding_dino_model.to(device)
         grounding_dino_model.eval()
         sam_model.to(device)
         sam_model.eval()
-        #
+
+        for index, item in tqdm(enumerate(image), total=len(image), desc=f"{dnl13} analyizing batch", unit="img", ncols=100, colour='green'):
+            item = Image.fromarray(np.clip(255. * item.cpu().numpy(), 0, 255).astype(np.uint8)).convert('RGBA')
+            boxes, phrases, logits = groundingdino_predict(grounding_dino_model, item, prompt, bbox_threshold, upper_confidence_threshold, lower_confidence_threshold, device)           
+
+            phrase_boxes = {}
+            for p in phrases:
+                phrase_boxes[p] = {'box': [], 'mask': [], 'image': [], 'logits':[]}
+
+            for i, phrase in enumerate(phrases):
+                sam_masks, masked_image, sam_grid_points, sam_grid_labels  = sam_segment_new(sam_model, item, boxes[i], clean_mask_holes, clean_mask_islands, mask_blur, mask_grow_shrink_factor, two_pass, sam_contrasts_helper, sam_brightness_helper,sam_hint_threshold_helper, sam_helper_show, device)
+                masked_image = masked_image.unsqueeze(0)
+                phrase_boxes[phrase]['box'].append(boxes[i].to(device))
+                phrase_boxes[phrase]['mask'].append(sam_masks.to(device))
+                phrase_boxes[phrase]['image'].append(masked_image.to(device))
+                phrase_boxes[phrase]['logits'].append(logits[i].to(device))
+                sam_hint_threshold_points.append(sam_grid_points)
+                sam_hint_threshold_labels.append(sam_grid_labels)
+
+            output_mapping[index] = phrase_boxes
+
+            tensor_image_formated = createDebugImage( 
+                item, 
+                boxes, 
+                phrases, 
+                logits, 
+                toggle_sam_debug=sam_helper_show, 
+                sam_contrasts_helper=sam_contrasts_helper, 
+                sam_brightness_helper=sam_brightness_helper, 
+                sam_hint_grid_points=sam_hint_threshold_points,
+                sam_hint_grid_labels=sam_hint_threshold_labels
+                )
+            res_debug_images.extend(tensor_image_formated)
+        
+        phrase_mask_count = defaultdict(lambda: defaultdict(int))
+        for index, data in output_mapping.items():
+            for phrase, values in data.items():
+                num_masks = len(values['mask'])
+                phrase_mask_count[phrase][index] = num_masks
+        max_masks_per_phrase = {
+            phrase: {'frame': max(counts, key=counts.get), 'num_masks': max(counts.values())}
+            for phrase, counts in phrase_mask_count.items()
+        }
+        max_found_masks = 0
+        for info in max_masks_per_phrase.values():
+            if info['num_masks'] > max_found_masks:
+                max_found_masks = info['num_masks']
+        print(f"{dnl13} maximum masks per frame depending on prompt detection:", max_found_masks)
+
+        # Erstelle eine Liste mit allen Phrasen aus dem output_mapping
+        all_phrases = set()
+        for index, data in output_mapping.items():
+            all_phrases.update(data.keys())
+
+        # Durchlaufe die prompt_list und überprüfe, ob die Phrasen im output_mapping oder als Teilphrasen vorhanden sind
+        for phrase in prompt_list:
+            # Überprüfe, ob die Phrase im output_mapping oder als Teilphrase vorhanden ist
+            found = False
+            for existing_phrase in all_phrases:
+                if phrase == existing_phrase or phrase in existing_phrase or existing_phrase in phrase:
+                    unique_phrases.append(existing_phrase)
+                    found = True
+                    break
+
+            # Falls die Phrase nicht gefunden wurde, füge sie zur eindeutigen Phrasenliste hinzu
+            if not found:
+                unique_phrases.append(phrase)
+
+        # Entferne doppelte Einträge und behalte die Reihenfolge bei
+        unique_phrases = list(dict.fromkeys(unique_phrases))
+
+
+        # Durchlaufe das output_mapping und füge fehlende Phrasen hinzu, dupliziere Elemente und sortiere dann
+        for index, data in output_mapping.items():
+            # Füge fehlende Phrasen hinzu
+            for phrase in unique_phrases:
+                if phrase not in data:
+                    data[phrase] = {
+                        'mask': [transparent_maske_tensor],
+                        'image': [transparent_image_tensor],
+                        'box': [empty_box],
+                        'logits': [empty_logits]
+                    }
+
+            # Stelle sicher, dass jede Phrase die gleiche Anzahl an Elementen hat
+            for phrase, items in data.items():
+                current_masks = len(items['mask'])
+                if current_masks < max_found_masks:
+                    # Berechne, wie viele Duplikate benötigt werden
+                    duplicates_needed = max_found_masks - current_masks
+
+                    # Dupliziere die vorhandenen Daten
+                    items['mask'].extend(items['mask'][:1] * duplicates_needed)
+                    items['image'].extend(items['image'][:1] * duplicates_needed)
+                    items['box'].extend(items['box'][:1] * duplicates_needed)
+                    items['logits'].extend(items['logits'][:1] * duplicates_needed)
+
+            # Sortiere die Phrasen gemäß der Reihenfolge in unique_phrases
+            data_sorted = {phrase: data[phrase] for phrase in unique_phrases if phrase in data}
+            output_mapping[index] = data_sorted
+
+        print(f"{dnl13} found following unique_phrases in prompt:", unique_phrases)
+
+        for index in sorted(output_mapping.keys()):
+
+            if multimask:
+                # Füge alle Masken und Bilder separat hinzu, wenn multimask aktiviert ist
+                for phrase in unique_phrases:
+                    if phrase in output_mapping[index]:
+                        res_images_rgba.extend(output_mapping[index][phrase]['image'])
+                        res_masks.extend(output_mapping[index][phrase]['mask'])
+
+                        # Erstellen Sie hier den Hintergrund-Tensor
+                        for img_rgba in output_mapping[index][phrase]['image']:
+                            rgb_image_tensor = blend_rgba_with_background(img_rgba.to(device), bg_color_tensor.to(device))
+                            res_images_rgb.append(rgb_image_tensor)  # Nur RGB-Kanäle hinzufügen
+
+            else:
+                # Kombiniere Masken und Bilder für das aktuelle Frame
+                combined_mask = None
+                combined_image = None
+
+                for phrase in unique_phrases:
+                    if phrase in output_mapping[index]:
+                        # Kombiniere Masken
+                        for mask in output_mapping[index][phrase]['mask']:
+                            if combined_mask is None:
+                                combined_mask = mask
+                            else:
+                                combined_mask = torch.max(combined_mask, mask)
+
+                        # Kombiniere Bilder mit Max-Pooling
+                        for img in output_mapping[index][phrase]['image']:
+                            if combined_image is None:
+                                combined_image = img
+                            else:
+                                combined_image = torch.max(combined_image, img)
+
+                # Füge das kombinierte Bild und die kombinierte Maske hinzu
+                if combined_image is not None:
+                    res_images_rgba.append(combined_image)
+
+                    rgb_image_tensor = blend_rgba_with_background(combined_image.to(device), bg_color_tensor.to(device))
+                    res_images_rgb.append(rgb_image_tensor)  # Nur RGB-Kanäle hinzufügen
+
+                if combined_mask is not None:
+                    res_masks.append(combined_mask)
+            
+        res_images_rgba = torch.cat(res_images_rgba, dim=0).to("cpu")
+        res_images_rgb = torch.cat(res_images_rgb, dim=0).to("cpu")
+        res_masks = torch.cat(res_masks, dim=0).to("cpu")
 
         res_images_rgba, res_images_rgb, res_masks, res_debug_images = None, None, None, None
         return (res_images_rgba, res_images_rgb, res_masks, res_debug_images, )
