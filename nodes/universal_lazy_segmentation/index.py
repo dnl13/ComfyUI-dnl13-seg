@@ -14,10 +14,10 @@ from ..vision_segment_anything.sam_auto_segmentation import sam_segment
 dnl13 = print_labels("dnl13")
 
 """
-TODO: 
-  - besseres output_mapping handling
-  - performance ab ~75 batch_size bricht ein
-  - clipseq für besser sam_hints ?  (tests needed)
+TODO: LazyMaskSegmentation 
+  [ ] besseres output_mapping handling
+  [ ] performance ab ~75 batch_size bricht ein
+  [ ] clipseq für besser sam_hints ?  (tests needed)
 """
  
 class LazyMaskSegmentation:
