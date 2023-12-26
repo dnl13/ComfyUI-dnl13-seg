@@ -6,7 +6,7 @@ import torchvision.transforms.v2 as v2
 import torchvision.transforms as transforms
 import torchvision.transforms.functional as TF
 import torch.nn.functional as F
-
+from typing import Optional, Tuple
 
 
 
@@ -40,6 +40,34 @@ def hex_to_rgb(hex_color):
     hex_color = hex_color.lstrip('#')  # Entfernen des '#' Zeichens, falls vorhanden
     rgb = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))  # Konvertieren von Hex zu RGB
     return rgb
+
+def apply_colormap(mask: torch.Tensor, colormap) -> np.ndarray:
+    """
+    Wendet eine Farbkarte auf eine Maske an und konvertiert diese in ein NumPy-Array.
+
+    Diese Funktion nimmt eine Maske als PyTorch-Tensor und wendet darauf eine Farbkarte an.
+    Die resultierende farbige Maske wird dann in ein NumPy-Array umgewandelt, das für 
+    Visualisierungszwecke verwendet werden kann. Die Farbkarte transformiert die Werte
+    der Maske in Farben, wodurch die Maske visuell interpretierbar wird.
+
+    Args:
+        mask (torch.Tensor): Die Maske als PyTorch-Tensor.
+        colormap: Eine Farbkarte, die auf die Maske angewendet werden soll.
+
+    Returns:
+        np.ndarray: Die farbige Maske als NumPy-Array.
+
+    Die Maske wird zunächst in ein NumPy-Array umgewandelt, auf das die Farbkarte angewendet wird.
+    Die resultierende farbige Maske wird in ein Array im Format [Höhe, Breite, 3] konvertiert,
+    multipliziert mit 255, um den Wertebereich auf 0-255 zu skalieren, und in den Datentyp np.uint8 umgewandelt.
+    """
+
+    # Anwenden der Farbkarte auf die Maske und Konvertierung in ein 3-Kanal-NumPy-Array
+    colored_mask = colormap(mask.numpy())[:, :, :3]
+
+    # Skalieren der Werte auf den Bereich 0-255 und Umwandlung in den Datentyp np.uint8
+    return (colored_mask * 255).astype(np.uint8)
+
 
 # =====================
 # Masks
@@ -127,7 +155,6 @@ def blur_cvmask(mask, blur_factor):
     blured_mask = cv2.GaussianBlur(mask, (blur_factor, blur_factor), 15)
     return blured_mask
 
-
 def adjust_cvmask_size(mask, factor):
     """
     Ändert die Größe einer Maske durch Schrumpfen oder Wachsen abhängig vom Faktor.
@@ -161,9 +188,61 @@ def adjust_cvmask_size(mask, factor):
 
     return mask
 
+def dilate_mask(mask: torch.Tensor, dilation_factor: float) -> torch.Tensor:
+    """
+    Führt eine Dilatation (Erweiterung) auf einer gegebenen Maske mit einem spezifischen Faktor durch.
+
+    Diese Funktion verwendet die Dilatationstechnik von OpenCV, um die Strukturen innerhalb einer Maske zu erweitern.
+    Der Dilatationsfaktor bestimmt die Größe des quadratischen Kernels, der für die Dilatation verwendet wird.
+
+    Args:
+        mask (torch.Tensor): Die Eingabemaske als PyTorch-Tensor.
+        dilation_factor (float): Der Faktor, der die Größe des quadratischen Kernels bestimmt.
+                                Größere Werte führen zu einer stärkeren Dilatation.
+
+    Returns:
+        torch.Tensor: Die dilatierte Maske als PyTorch-Tensor.
+
+    Der Kernel für die Dilatation wird basierend auf dem 'dilation_factor' erstellt. Ein größerer Faktor
+    bewirkt eine stärkere Erweiterung der Maske. Die Funktion konvertiert die Maske zunächst in ein NumPy-Array,
+    führt die Dilatation durch und konvertiert das Ergebnis zurück in einen PyTorch-Tensor.
+    """
+
+    # Berechnung der Kernelgröße basierend auf dem Dilatationsfaktor
+    kernel_size = int(dilation_factor * 2) + 1
+    kernel = np.ones((kernel_size, kernel_size), np.uint8)
+
+    # Durchführen der Dilatation auf die Maske
+    mask_dilated = cv2.dilate(mask.numpy(), kernel, iterations=1)
+
+    # Rückgabe der dilatierten Maske als PyTorch-Tensor
+    return torch.from_numpy(mask_dilated)
 # =====================
 # Image Processing 
 # =====================
+
+def resize_image(image: np.ndarray, dimensions: Tuple[int, int]) -> np.ndarray:
+    """
+    Skaliert ein Bild auf die gegebenen Dimensionen unter Verwendung linearer Interpolation.
+
+    Diese Funktion nimmt ein Bild im NumPy-Array-Format und ändert seine Größe auf die spezifizierten
+    Dimensionen. Dabei wird lineare Interpolation verwendet, um die Pixelwerte des skalierten Bildes
+    zu berechnen. Lineare Interpolation ist eine gängige Methode für die Größenänderung von Bildern,
+    die ein gutes Gleichgewicht zwischen Qualität und Rechenleistung bietet.
+
+    Args:
+        image (np.ndarray): Das Originalbild als NumPy-Array.
+        dimensions (Tuple[int, int]): Ein Tupel, das die Zielgröße des Bildes angibt (Breite, Höhe).
+
+    Returns:
+        np.ndarray: Das skalierte Bild als NumPy-Array.
+
+    Das Bild wird mit der Funktion 'cv2.resize' der OpenCV-Bibliothek skaliert. Der Parameter
+    'interpolation=cv2.INTER_LINEAR' gibt an, dass lineare Interpolation für das Skalieren verwendet wird.
+    """
+
+    # Skalieren des Bildes auf die angegebenen Dimensionen
+    return cv2.resize(image, dimensions, interpolation=cv2.INTER_LINEAR)
 
 def split_image_mask(image, device):
     """
@@ -280,6 +359,31 @@ def img_combine_mask_rgba(image_np_rgb, msk_cv2_blurred):
     )
 
     return image_with_alpha
+
+def overlay_image(background: np.ndarray, foreground: np.ndarray, alpha: float) -> np.ndarray:
+    """
+    Legt ein Vordergrundbild mit einer bestimmten Deckkraft (Alpha) über ein Hintergrundbild.
+
+    Diese Funktion nimmt zwei Bilder (Hintergrund und Vordergrund) sowie einen Alphawert für die Deckkraft
+    des Vordergrundbildes. Das Vordergrundbild wird mit dieser Deckkraft auf das Hintergrundbild gelegt,
+    wobei die beiden Bilder kombiniert und die Deckkraft des Vordergrundbildes berücksichtigt wird.
+
+    Args:
+        background (np.ndarray): Das Hintergrundbild als NumPy-Array.
+        foreground (np.ndarray): Das Vordergrundbild als NumPy-Array.
+        alpha (float): Die Deckkraft des Vordergrundbildes (Wert zwischen 0 und 1).
+
+    Returns:
+        np.ndarray: Das resultierende Bild nach der Überlagerung.
+
+    Die Funktion verwendet 'cv2.addWeighted' zur Kombination der beiden Bilder. Der Alphawert bestimmt,
+    wie stark das Vordergrundbild im Verhältnis zum Hintergrundbild sichtbar ist. Ein Alpha-Wert von 1 
+    würde bedeuten, dass nur das Vordergrundbild sichtbar ist, während ein Wert von 0 nur das Hintergrundbild
+    zeigt.
+    """
+
+    # Kombinieren der Bilder unter Berücksichtigung der Deckkraft (Alpha)
+    return cv2.addWeighted(background, 1 - alpha, foreground, alpha, 0)
 
 # =====================
 # Debug Image Generation

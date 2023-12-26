@@ -1,69 +1,33 @@
-from transformers import CLIPSegProcessor, CLIPSegForImageSegmentation
 
-from PIL import Image
+import os
+import cv2
 import torch
-import torchvision.transforms as T
 import numpy as np
 
-from torchvision.transforms.functional import to_pil_image
+from PIL import Image
+from typing import Optional, Tuple
+
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 
 
-import cv2
+from transformers import CLIPSegProcessor, CLIPSegForImageSegmentation
+import torchvision.transforms as T
+from torchvision.transforms.functional import to_pil_image
 
 from scipy.ndimage import gaussian_filter
 
-from typing import Optional, Tuple
-
-import warnings
-warnings.filterwarnings("ignore", category=UserWarning, module="torch")
-warnings.filterwarnings("ignore", category=UserWarning, module="safetensors")
-
-import os
 import folder_paths
 from ...utils.collection  import get_local_filepath, check_mps_device
+from ...utils.helper_img_utils  import dilate_mask, resize_image, apply_colormap, overlay_image
+from ...utils.utils_format_interchange_tools import numpy_to_tensor
+
 clipseg_model_dir = os.path.join(folder_paths.models_dir, "clipseg")
-
-"""Helper methods for CLIPSeg nodes"""
-
-def tensor_to_numpy(tensor: torch.Tensor) -> np.ndarray:
-    """Convert a tensor to a numpy array and scale its values to 0-255."""
-    array = tensor.numpy().squeeze()
-    return (array * 255).astype(np.uint8)
-
-def numpy_to_tensor(array: np.ndarray) -> torch.Tensor:
-    """Convert a numpy array to a tensor and scale its values from 0-255 to 0-1."""
-    array = array.astype(np.float32) / 255.0
-    return torch.from_numpy(array)[None,]
-
-def apply_colormap(mask: torch.Tensor, colormap) -> np.ndarray:
-    """Apply a colormap to a tensor and convert it to a numpy array."""
-    colored_mask = colormap(mask.numpy())[:, :, :3]
-    return (colored_mask * 255).astype(np.uint8)
-
-def resize_image(image: np.ndarray, dimensions: Tuple[int, int]) -> np.ndarray:
-    """Resize an image to the given dimensions using linear interpolation."""
-    return cv2.resize(image, dimensions, interpolation=cv2.INTER_LINEAR)
-
-def overlay_image(background: np.ndarray, foreground: np.ndarray, alpha: float) -> np.ndarray:
-    """Overlay the foreground image onto the background with a given opacity (alpha)."""
-    return cv2.addWeighted(background, 1 - alpha, foreground, alpha, 0)
-
-def dilate_mask(mask: torch.Tensor, dilation_factor: float) -> torch.Tensor:
-    """Dilate a mask using a square kernel with a given dilation factor."""
-    kernel_size = int(dilation_factor * 2) + 1
-    kernel = np.ones((kernel_size, kernel_size), np.uint8)
-    mask_dilated = cv2.dilate(mask.numpy(), kernel, iterations=1)
-    return torch.from_numpy(mask_dilated)
-
 
 
 class CLIPSeg:
-
     def __init__(self):
         pass
-    
     @classmethod
     def INPUT_TYPES(s):
         """
@@ -178,61 +142,3 @@ class CLIPSeg:
 
     #OUTPUT_NODE = False
 
-class CombineMasks:
-    def __init__(self):
-        pass
-
-    @classmethod
-    def INPUT_TYPES(s):
-        return {"required":
-                    {
-                        "input_image": ("IMAGE", ),
-                        "mask_1": ("MASK", ), 
-                        "mask_2": ("MASK", ),
-                    },
-                "optional": 
-                    {
-                        "mask_3": ("MASK",), 
-                    },
-                }
-        
-    CATEGORY = "image"
-    RETURN_TYPES = ("MASK", "IMAGE", "IMAGE",)
-    RETURN_NAMES = ("Combined Mask","Heatmap Mask", "BW Mask")
-
-    FUNCTION = "combine_masks"
-            
-    def combine_masks(self, input_image: torch.Tensor, mask_1: torch.Tensor, mask_2: torch.Tensor, mask_3: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """A method that combines two or three masks into one mask. Takes in tensors and returns the mask as a tensor, as well as the heatmap and binary mask as tensors."""
-
-        # Combine masks
-        combined_mask = mask_1 + mask_2 + mask_3 if mask_3 is not None else mask_1 + mask_2
-
-
-        # Convert image and masks to numpy arrays
-        image_np = tensor_to_numpy(input_image)
-        heatmap = apply_colormap(combined_mask, cm.viridis)
-        binary_mask = apply_colormap(combined_mask, cm.Greys_r)
-
-        # Resize heatmap and binary mask to match the original image dimensions
-        dimensions = (image_np.shape[1], image_np.shape[0])
-        heatmap_resized = resize_image(heatmap, dimensions)
-        binary_mask_resized = resize_image(binary_mask, dimensions)
-
-        # Overlay the heatmap and binary mask onto the original image
-        alpha_heatmap, alpha_binary = 0.5, 1
-        overlay_heatmap = overlay_image(image_np, heatmap_resized, alpha_heatmap)
-        overlay_binary = overlay_image(image_np, binary_mask_resized, alpha_binary)
-
-        # Convert overlays to tensors
-        image_out_heatmap = numpy_to_tensor(overlay_heatmap)
-        image_out_binary = numpy_to_tensor(overlay_binary)
-
-        return combined_mask, image_out_heatmap, image_out_binary
-
-# A dictionary that contains all nodes you want to export with their names
-# NOTE: names should be globally unique
-NODE_CLASS_MAPPINGS = {
-    "CLIPSeg": CLIPSeg,
-    "CombineSegMasks": CombineMasks,
-}
