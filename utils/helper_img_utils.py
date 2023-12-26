@@ -10,7 +10,9 @@ import torch.nn.functional as F
 
 
 
-
+# =====================
+# Colors
+# =====================
 
 def hex_to_rgb(hex_color):
     """
@@ -39,10 +41,167 @@ def hex_to_rgb(hex_color):
     rgb = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))  # Konvertieren von Hex zu RGB
     return rgb
 
+# =====================
+# Masks
+# =====================
+
+def make_2d_mask(mask):
+    """
+    Konvertiert einen gegebenen Masken-Tensor in einen 2D-Tensor.
+
+    Diese Funktion nimmt einen Tensor, der eine Maske darstellt, und reduziert dessen Dimensionalität auf 2D.
+    Sie behandelt unterschiedliche Eingangsformen, je nachdem, ob der Tensor 4D (z.B. Batch-Größe und Kanäle enthalten),
+    3D (z.B. nur Kanäle enthalten) oder bereits 2D ist.
+
+    Args:
+        mask (torch.Tensor): Ein Tensor, der die Maske repräsentiert. Kann 2D, 3D oder 4D sein.
+
+    Returns:
+        torch.Tensor: Ein 2D-Tensor, der die Maske darstellt.
+
+    Die Funktion überprüft zuerst die Dimensionalität des Eingangstensors. Wenn der Tensor 4D ist, wird erwartet,
+    dass die ersten beiden Dimensionen die Batch-Größe und die Kanäle sind, die entfernt werden. Bei einem 3D-Tensor
+    wird angenommen, dass die erste Dimension die Kanäle sind, die ebenfalls entfernt werden. Ist der Tensor bereits 2D,
+    wird er unverändert zurückgegeben.
+    """
+
+    # Entferne zusätzliche Dimensionen, um einen 2D-Tensor zu erhalten
+    if len(mask.shape) == 4:
+        # Annahme: Tensorformat ist [Batch, Kanal, Höhe, Breite]
+        return mask.squeeze(0).squeeze(0)  # Entferne die Batch- und Kanaldimension
+    elif len(mask.shape) == 3:
+        # Annahme: Tensorformat ist [Kanal, Höhe, Breite]
+        return mask.squeeze(0)  # Entferne die Kanaldimension
+    # Wenn der Tensor bereits 2D ist, gib ihn unverändert zurück
+    return mask
+
+def mask2cv(mask_np):
+    """
+    Konvertiert eine Maske im NumPy-Format in ein für OpenCV geeignetes Format.
+
+    Diese Funktion nimmt eine Maske als NumPy-Array und konvertiert sie in ein Format,
+    das von OpenCV verarbeitet werden kann. Die Eingabemaske sollte im Format [Höhe, Breite, Kanäle]
+    vorliegen. Die Funktion skaliert die Werte der Maske in den Bereich von 0 bis 255, was dem 
+    Standardformat für Bilder in OpenCV entspricht.
+
+    Args:
+        mask_np (numpy.ndarray): Die Eingabemaske als NumPy-Array. Sollte im Format [Höhe, Breite, Kanäle] sein.
+
+    Returns:
+        numpy.ndarray: Die konvertierte Maske im OpenCV-kompatiblen Format.
+
+    Die Funktion wandelt zuerst den Datentyp der Maske in `np.float32` um, um eine korrekte Skalierung
+    zu gewährleisten. Anschließend werden die Werte der Maske auf den Bereich von 0 bis 255 skaliert, 
+    was dem Standardformat für Bilder in OpenCV entspricht.
+    """
+
+    msk_cv2 = mask_np.astype(np.float32)  # Umwandlung in float32 für korrekte Skalierung
+    msk_cv2 = msk_cv2 * 255  # Skalierung der Werte auf den Bereich 0 bis 255
+    return msk_cv2
+
+def blur_cvmask(mask, blur_factor):
+    """
+    Wendet einen Gaußschen Weichzeichner (Blur) auf eine Maske an.
+
+    Diese Funktion verwendet die Gaußsche Unschärfe von OpenCV, um eine gegebene Maske zu weichzeichnen.
+    Die Intensität der Unschärfe wird durch den 'blur_factor' bestimmt. Ein größerer 'blur_factor' führt zu einer
+    stärkeren Unschärfe. Um einen validen Kernel für die Gaußsche Unschärfe zu gewährleisten, wird der 'blur_factor'
+    auf die nächste ungerade Zahl erhöht, falls er eine gerade Zahl ist.
+
+    Args:
+        mask (numpy.ndarray): Die Eingabemaske, die weichgezeichnet werden soll.
+        blur_factor (int): Der Faktor, der die Stärke der Unschärfe bestimmt.
+
+    Returns:
+        numpy.ndarray: Die weichgezeichnete Maske.
+
+    Ein gerader 'blur_factor' wird auf die nächste ungerade Zahl erhöht, um einen korrekten Kernel für die
+    Gaußsche Unschärfe zu gewährleisten. Die Maske wird dann mit diesem Kernel weichgezeichnet.
+    """
+
+    # Stelle sicher, dass der Blur-Faktor ungerade ist
+    if blur_factor % 2 == 0:  
+        blur_factor += 1  
+
+    # Anwenden der Gaußschen Unschärfe auf die Maske
+    blured_mask = cv2.GaussianBlur(mask, (blur_factor, blur_factor), 15)
+    return blured_mask
 
 
+def adjust_cvmask_size(mask, factor):
+    """
+    Ändert die Größe einer Maske durch Schrumpfen oder Wachsen abhängig vom Faktor.
 
+    Diese Funktion führt eine morphologische Erosion oder Dilatation auf einer Maske aus.
+    Bei einem positiven Faktor wird die Maske erweitert (Dilatation), bei einem negativen Faktor
+    wird sie verkleinert (Erosion). Die Intensität der Operation wird durch den absoluten Wert 
+    des Faktors bestimmt.
 
+    Args:
+        mask (numpy.ndarray): Eine Maske, die bearbeitet werden soll.
+        factor (int): Der Faktor, der die Intensität und Richtung der Größenänderung bestimmt.
+                      Positive Werte führen zur Dilatation, negative zur Erosion.
+
+    Returns:
+        numpy.ndarray: Die bearbeitete Maske.
+
+    Ein positiver Faktor führt zur Dilatation (Vergrößerung), während ein negativer Faktor 
+    zur Erosion (Verkleinerung) der Maske führt. Bei einem Faktor von 0 bleibt die Maske unverändert.
+    """
+
+    if factor > 0:
+        # Dilatation (Vergrößern der Maske)
+        mask = cv2.dilate(mask, kernel=np.ones((3, 3), np.uint8), iterations=abs(factor))
+    elif factor < 0:
+        # Erosion (Verkleinern der Maske)
+        mask = cv2.erode(mask, kernel=np.ones((3, 3), np.uint8), iterations=abs(factor))
+    else:
+        # Keine Änderung, wenn der Faktor 0 ist
+        pass
+
+    return mask
+
+# =====================
+# Image Processing 
+# =====================
+
+def split_image_mask(image, device):
+    """
+    Trennt ein PIL-Bild in seine RGB-Komponenten und eine Alpha-Maske.
+
+    Die Funktion konvertiert ein PIL-Bild zuerst in den RGB-Farbraum. Dann wird das RGB-Bild und die
+    Alpha-Maske (falls vorhanden) in NumPy-Arrays umgewandelt, normalisiert und schließlich in PyTorch-Tensoren 
+    konvertiert. Falls keine Alpha-Maske vorhanden ist, wird eine leere Maske erstellt.
+
+    Args:
+        image (PIL.Image): Das PIL-Bild, das sowohl Farb- als auch Maskeninformationen enthält.
+        device (torch.device): Das Gerät, auf dem die Berechnung ausgeführt wird (z.B. 'cpu' oder 'cuda').
+
+    Returns:
+        tuple: Ein Tuple, das zwei Elemente enthält:
+               - Ein Tensor, der das RGB-Bild repräsentiert.
+               - Ein Tensor, der die Alpha-Maske repräsentiert (oder eine leere Maske, falls keine Alpha-Maske vorhanden ist).
+
+    Beispiel:
+        >>> from PIL import Image
+        >>> image = Image.open('bild_mit_alpha.png')
+        >>> image_rgb, mask = split_image_mask(image, torch.device('cuda'))
+    """
+
+    # Konvertiere das Bild in RGB und dann in einen Tensor
+    image_rgb = image.convert("RGB")
+    image_rgb = np.array(image_rgb).astype(np.float32) / 255.0
+    image_rgb = torch.from_numpy(image_rgb)[None,].to(device)
+
+    # Extrahiere die Alpha-Maske, falls vorhanden
+    if 'A' in image.getbands():
+        mask = np.array(image.getchannel('A')).astype(np.float32) / 255.0
+        mask = torch.from_numpy(mask)[None,].to(device)
+    else:
+        # Erstelle eine leere Maske, falls keine Alpha-Maske vorhanden ist
+        mask = torch.zeros((64, 64), dtype=torch.float32, device=device)
+
+    return (image_rgb, mask)
 
 def blend_rgba_with_background(rgba_tensor, bg_color_tensor):
     """
@@ -60,11 +219,6 @@ def blend_rgba_with_background(rgba_tensor, bg_color_tensor):
     blended_rgb = alpha * rgb + (1 - alpha) * bg_color_tensor
 
     return blended_rgb
-
-
-
-
-
 
 def enhance_edges(image_np_rgb, alpha=1.5, beta=50, edge_alpha=1.0):
     """
@@ -100,10 +254,36 @@ def enhance_edges(image_np_rgb, alpha=1.5, beta=50, edge_alpha=1.0):
 
     return enhanced_image
 
+def img_combine_mask_rgba(image_np_rgb, msk_cv2_blurred):
+    """
+    Kombiniert ein RGB-Bild und eine geblurte Maske in ein einziges RGBA-Bild.
 
+    Diese Funktion nimmt ein RGB-Bild und eine geblurte Maske (beide als NumPy-Arrays) und fügt sie zu einem
+    einzigen RGBA-Bild zusammen, wobei die Maske als Alpha-Kanal verwendet wird. Das resultierende Bild ist 
+    ein PIL.Image im RGBA-Format, das für weitere Verarbeitung oder Anzeige genutzt werden kann.
 
+    Args:
+        image_np_rgb (numpy.ndarray): Ein RGB-Bild als NumPy-Array im Format [Höhe, Breite, 3].
+        msk_cv2_blurred (numpy.ndarray): Eine geblurte Maske als NumPy-Array im Format [Höhe, Breite, 1].
 
+    Returns:
+        PIL.Image: Das kombinierte Bild im RGBA-Format.
 
+    Das RGB-Bild und die geblurte Maske werden entlang der letzten Dimension (Kanäle) miteinander verbunden,
+    wobei die Maske als Alpha-Kanal für Transparenz hinzugefügt wird. Das resultierende Array wird in ein
+    PIL.Image im RGBA-Format umgewandelt.
+    """
+
+    # Kombiniere das RGB-Bild und die geblurte Maske zu einem RGBA-Bild
+    image_with_alpha = Image.fromarray(
+        np.concatenate((image_np_rgb, msk_cv2_blurred), axis=2).astype(np.uint8), 'RGBA'
+    )
+
+    return image_with_alpha
+
+# =====================
+# Debug Image Generation
+# =====================
 
 def createDebugImage( image, dino_bbox, dino_pharses, dino_logits, toggle_sam_debug, sam_contrasts_helper, sam_brightness_helper, sam_hint_grid_points, sam_hint_grid_labels):
     """

@@ -2,8 +2,64 @@ import torch
 import numpy as np
 from PIL import Image
 
+from segment_anything.utils.amg import  remove_small_regions,build_point_grid, batched_mask_to_box,uncrop_points
+
 from ...utils.collection  import to_tensor
 from ...libs.sam_hq.automatic import SamAutomaticMaskGenerator
+from ...libs.sam_hq.predictorHQ import SamPredictor as SamPredictorHQ
+from ...libs.sam_hq.predictor import SamPredictor 
+
+from ...utils.helper_img_utils import enhance_edges, make_2d_mask, mask2cv, adjust_cvmask_size, blur_cvmask, split_image_mask, img_combine_mask_rgba
+#
+
+
+
+
+
+def gen_detection_hints_from_bbox_area(mask, threshold, bbox):
+    """
+    Generiert Erkennungshinweise innerhalb einer gegebenen Bounding Box basierend auf der Maske.
+
+    :param mask: Ein 2D-Tensor, der die Maske des Bildes darstellt.
+    :param threshold: Ein Schwellenwert, um zu entscheiden, ob ein Punkt als positiv oder negativ betrachtet wird.
+    :param bbox: Ein Tensor oder Array mit den Koordinaten der Bounding Box [x_min, y_min, x_max, y_max].
+    :return: Zwei Listen, eine für Punkte und eine für deren Labels.
+    """
+    logit_values, plabs, points = [], [], []
+    mask = make_2d_mask(mask)
+
+    x_min, y_min, x_max, y_max = map(int, bbox)
+    box_width = x_max - x_min
+    box_height = y_max - y_min
+    y_step = max(3, int(box_height / 20))
+    x_step = max(3, int(box_width / 20))
+
+    for i in range(y_min, y_max, y_step):
+        for j in range(x_min, x_max, x_step):
+            mask_i = int((i - y_min) * mask.shape[0] / box_height)
+            mask_j = int((j - x_min) * mask.shape[1] / box_width)
+            logit_values.append(mask[mask_i, mask_j].cpu())
+
+    logit_values = np.array(logit_values)
+    mean = np.mean(logit_values)
+    std = np.std(logit_values)
+    standardized_values = (logit_values - mean) / std
+    tanh_values = np.tanh(standardized_values)
+    rounded_values = np.round(tanh_values, 5)
+    rounded_values.tolist() 
+    for i in range(y_min, y_max, y_step):
+        for j in range(x_min, x_max, x_step):
+            index = ((i - y_min) // y_step) * (box_width // x_step) + ((j - x_min) // x_step)
+            if rounded_values[index] > threshold:
+                points.append((j, i))
+                plabs.append(1)
+            else:
+                points.append((j, i))
+                plabs.append(0)
+    return points, plabs
+
+
+
 
 
 
@@ -87,3 +143,135 @@ def sam_auto_segmentationHQ(sam_model, image, points_per_side, min_mask_region_a
         response_images.append(rgb_tensor)
 
     return response_images, response_masks
+
+
+
+
+
+def sam_segment(
+    sam_model,
+    image,
+    boxes,
+    clean_mask_holes,
+    clean_mask_islands,
+    mask_blur,
+    mask_grow_shrink_factor,
+    two_pass,
+    sam_contrasts_helper,
+    sam_brightness_helper,
+    sam_hint_threshold_helper,
+    sam_helper_show,
+    device
+):  
+    if hasattr(sam_model, 'model_name') and 'hq' in sam_model.model_name:
+        sam_is_hq = True
+        predictor = SamPredictorHQ(sam_model)
+    else:
+        sam_is_hq = False
+        predictor = SamPredictor(sam_model)
+    if boxes.shape[0] == 0:
+        return None
+    
+    image_np = np.array(image)
+    height, width = image_np.shape[:2]
+    image_np_rgb = image_np[..., :3]
+    #
+    sam_grid_points, sam_grid_labels = None, None
+    #
+    sam_input_image = enhance_edges(image_np_rgb, alpha=sam_contrasts_helper, beta=sam_brightness_helper, edge_alpha=1.0) # versuche um die Erkennung zu verbessern
+    #
+    #if sam_helper_show: 
+    #    image_np_rgb = sam_input_image
+    predictor.set_image(sam_input_image)
+
+    transformed_boxes = predictor.transform.apply_boxes_torch( boxes, image_np.shape[:2]).to(device)
+
+    """
+    predictor.predict_torch Returns:
+    (np.ndarray): The output masks in CxHxW format, where C is the number of masks, and (H, W) is the original image size.
+    (np.ndarray): An array of length C containing the model's predictions for the quality of each mask.
+    (np.ndarray): An array of shape CxHxW, where C is the number of masks and H=W=256. These low resolution logits can be passed to a subsequent iteration as mask input.
+    """
+
+    # :NOTE - https://github.com/facebookresearch/segment-anything/issues/169 segement_anything got wrong floats instead of boolean mask_input=
+       
+    if sam_is_hq is True:
+        if two_pass is True: 
+            # first pass
+            pre_masks, _ , pre_logits = predictor.predict_torch(point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input = None, multimask_output=True, return_logits=True, hq_token_only=False)
+            
+             # Zugriff auf die erste Box, falls mehrere Boxen vorhanden
+            if sam_hint_threshold_helper != 0.0 :
+                combined_pre_mask = torch.max(pre_masks, dim=1)[0]
+                #detection_points, detection_labels = gen_detection_hints_from_mask_area( combined_pre_mask, sam_hint_threshold_helper, height, width)
+                detection_points, detection_labels = gen_detection_hints_from_bbox_area(combined_pre_mask, sam_hint_threshold_helper, transformed_boxes[0])
+                sam_grid_points, sam_grid_labels = detection_points, detection_labels
+                # Konvertieren Sie Listen in Tensoren
+                detection_points_tensor = torch.tensor(detection_points, dtype=torch.float32).to(device)
+                detection_labels_tensor = torch.tensor(detection_labels, dtype=torch.float32).to(device)
+                B = 1  # Bei einer einzelnen Bildvorhersage
+                N = detection_points_tensor.shape[0]
+                detection_points_tensor = detection_points_tensor.view(B, N, 2)
+                detection_labels_tensor = detection_labels_tensor.view(B, N)
+                
+            else:
+                detection_points_tensor = None
+                detection_labels_tensor = None
+            # second pass
+            pre_logits = torch.mean(pre_logits, dim=1, keepdim=True)
+            masks, quality , logits = predictor.predict_torch( point_coords=detection_points_tensor, point_labels=detection_labels_tensor, boxes=transformed_boxes, mask_input = pre_logits, multimask_output=False, hq_token_only=True)
+
+        else:
+            masks, quality , logits = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False, hq_token_only=True)
+    else:
+        if two_pass is True: 
+            # first pass
+            pre_masks, _ , pre_logits = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False)
+            
+            if sam_hint_threshold_helper  != 0.0 :
+                combined_pre_mask = torch.max(pre_masks, dim=1)[0]
+                #detection_points, detection_labels = gen_detection_hints_from_mask_area( combined_pre_mask, sam_hint_threshold_helper, height, width)
+                detection_points, detection_labels = gen_detection_hints_from_bbox_area(combined_pre_mask, sam_hint_threshold_helper, transformed_boxes[0])
+                sam_grid_points, sam_grid_labels = detection_points, detection_labels
+                # Konvertieren Sie Listen in Tensoren
+                detection_points_tensor = torch.tensor(detection_points, dtype=torch.float32).to(device)
+                detection_labels_tensor = torch.tensor(detection_labels, dtype=torch.float32).to(device)
+                B = 1  # Bei einer einzelnen Bildvorhersage
+                N = detection_points_tensor.shape[0]
+                detection_points_tensor = detection_points_tensor.view(B, N, 2)
+                detection_labels_tensor = detection_labels_tensor.view(B, N)
+            else:
+                detection_points_tensor = None
+                detection_labels_tensor = None
+            # second pass
+            masks, quality , logits = predictor.predict_torch( point_coords=detection_points_tensor, point_labels=detection_labels_tensor, boxes=transformed_boxes, mask_input=pre_logits, multimask_output=False)
+        else:
+            masks, quality , logits = predictor.predict_torch( point_coords=None, point_labels=None, boxes=transformed_boxes, mask_input=None, multimask_output=False)
+
+
+    # Finde den Index der Maske mit dem höchsten Qualitätswert
+    combined_mask = torch.sum(masks, dim=0)
+    mask_np =  combined_mask.permute( 1, 2, 0).cpu().numpy()# H.W.C
+    # postproccess mask 
+    mask_np, _ = remove_small_regions(mask=mask_np,area_thresh=clean_mask_holes,mode="holes" )
+    mask_np, _ = remove_small_regions(mask=mask_np,area_thresh=clean_mask_islands,mode="islands" )
+    
+    msk_cv2 = mask2cv(mask_np)
+    msk_cv2 = adjust_cvmask_size(msk_cv2, mask_grow_shrink_factor)
+    msk_cv2_blurred = blur_cvmask(msk_cv2, mask_blur)
+
+    # fix if mask gets wrong dimensions
+    if msk_cv2_blurred.ndim < 3 or msk_cv2_blurred.shape[-1] != 1:
+        msk_cv2_blurred = np.expand_dims(msk_cv2_blurred, axis=-1)
+    image_with_alpha = img_combine_mask_rgba(image_np_rgb , msk_cv2_blurred)
+    _, msk = split_image_mask(image_with_alpha,device)
+
+    image_with_alpha_tensor = to_tensor(image_with_alpha)
+    image_with_alpha_tensor = image_with_alpha_tensor.permute(1, 2, 0)
+
+    mask_ts = to_tensor(image_with_alpha)
+    mask_ts = mask_ts.unsqueeze(0)
+    mask_ts = mask_ts.permute(0, 2, 3, 1) 
+
+    #sam_grid_points, sam_grid_labels = detection_points_tensor, detection_labels_tensor
+    return msk, image_with_alpha_tensor, sam_grid_points, sam_grid_labels

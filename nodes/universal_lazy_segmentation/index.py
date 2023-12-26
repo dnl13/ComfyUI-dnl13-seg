@@ -8,12 +8,19 @@ from ...utils.helper_cmd import print_labels
 from ...utils.helper_img_utils import hex_to_rgb, blend_rgba_with_background, createDebugImage
 from ...utils.comfy_vae_encode_inpaint import VAEencode
 from ..vision_grounding_dino.grounding_dino_predict import groundingdino_predict
+from ..vision_segment_anything.sam_auto_segmentation import sam_segment
 
-#Print Labels holen
+#Print Label
 dnl13 = print_labels("dnl13")
 
+"""
+TODO: 
+  - besseres output_mapping handling
+  - performance ab ~75 batch_size bricht ein
+  - clipseq für besser sam_hints ?  (tests needed)
+"""
+ 
 class LazyMaskSegmentation:
-
     @classmethod
     def INPUT_TYPES(cls):
         available_devices = list_available_devices()
@@ -187,7 +194,7 @@ class LazyMaskSegmentation:
                 phrase_boxes[p] = {'box': [], 'mask': [], 'image': [], 'logits':[]}
 
             for i, phrase in enumerate(phrases):
-                sam_masks, masked_image, sam_grid_points, sam_grid_labels  = sam_segment_new(sam_model, item, boxes[i], clean_mask_holes, clean_mask_islands, mask_blur, mask_grow_shrink_factor, two_pass, sam_contrasts_helper, sam_brightness_helper,sam_hint_threshold_helper, sam_helper_show, device)
+                sam_masks, masked_image, sam_grid_points, sam_grid_labels  = sam_segment(sam_model, item, boxes[i], clean_mask_holes, clean_mask_islands, mask_blur, mask_grow_shrink_factor, two_pass, sam_contrasts_helper, sam_brightness_helper,sam_hint_threshold_helper, sam_helper_show, device)
                 masked_image = masked_image.unsqueeze(0)
                 phrase_boxes[phrase]['box'].append(boxes[i].to(device))
                 phrase_boxes[phrase]['mask'].append(sam_masks.to(device))
@@ -206,7 +213,6 @@ class LazyMaskSegmentation:
                 toggle_sam_debug=sam_helper_show, 
                 sam_contrasts_helper=sam_contrasts_helper, 
                 sam_brightness_helper=sam_brightness_helper, 
-                #sam_hint_threshold_helper=sam_hint_threshold_helper,
                 sam_hint_grid_points=sam_hint_threshold_points,
                 sam_hint_grid_labels=sam_hint_threshold_labels
                 )
