@@ -1,1 +1,1 @@
-from .index import CLIPSeg
+from .index import ClipSegmentationProcessor

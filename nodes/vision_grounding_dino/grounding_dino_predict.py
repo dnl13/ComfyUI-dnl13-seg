@@ -2,7 +2,6 @@ import torch
 import numpy as np
 from PIL import Image, ImageDraw
 
-from ...utils.collection import to_tensor 
 import torchvision.transforms.v2 as v2
 import torchvision.transforms as transforms
 import torchvision.transforms.functional as TF

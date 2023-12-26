@@ -2,17 +2,34 @@ import os
 import importlib
 
 from .nodes.model_loader_sam import SAMModelLoader
+from .nodes.universal_lazy_segmentation import LazyMaskSegmentation
+from .nodes.vision_clip_segementation import ClipSegmentationProcessor
+from .utils.helper_cmd_and_path import print_labels
 
+dnl13 = print_labels("dnl13")
+
+"""
+TODO:
+    working states:
+    [x] GroundingDinoModelLoaderV1
+    [x] SAMModelLoader
+    [ ] LazyMaskSegmentation
+    [ ] BatchSelector
+    [ ] GreenscreenGenerator
+    [x] ClipSegmentationProcessor
+    [ ] DinoSegmentationProcessor
+    [ ] SAM_Mask_Processor
+"""
 # Konfiguration für die Zuordnung von Unterordnern zu Klassen
 NODES_CONFIG = {
     "model_loader_dino": ['GroundingDinoModelLoaderV1'],
     "model_loader_sam": ['SAMModelLoader'],
     "universal_lazy_segmentation": ['LazyMaskSegmentation'],
-    "utils_batch_selector": ['BatchSelector'],
-    "utils_greenscreen": ['GreenscreenGenerator'],
+    #"utils_batch_selector": ['BatchSelector'],
+    #"utils_greenscreen": ['GreenscreenGenerator'],
     "vision_clip_segementation": ['ClipSegmentationProcessor'],
-    "vision_grounding_dino": ['DinoSegmentationProcessor'],
-    "vision_segment_anything": ['SAM_Mask_Processor'],
+    #"vision_grounding_dino": ['DinoSegmentationProcessor'],
+    #"vision_segment_anything": ['SAMSegmentationProcessor'],
 }
 
 # NODE_CLASS_MAPPINGS initialisieren
@@ -30,5 +47,5 @@ for node_folder, classes in NODES_CONFIG.items():
             class_obj = getattr(module, class_name)
             NODE_CLASS_MAPPINGS[f"{class_name} (dnl13)"] = class_obj
         except (ModuleNotFoundError, AttributeError) as e:
-            print(f"Klasse {class_name} im Modul {module_path} nicht gefunden. Überspringe diese Node.")
+            print(f"{dnl13} Klasse {class_name} im Modul {module_path} nicht gefunden. Überspringe diese Node.")
             continue

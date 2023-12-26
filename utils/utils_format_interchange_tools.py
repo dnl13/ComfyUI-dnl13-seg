@@ -1,5 +1,8 @@
 import numpy as np
 import torch
+from torchvision.transforms.v2 import Compose, ToImage, ToDtype
+
+to_tensor = Compose([ToImage(), ToDtype(torch.float32, scale=True)])
 
 def tensor_to_numpy(tensor: torch.Tensor) -> np.ndarray:
     """Convert a tensor to a numpy array and scale its values to 0-255."""

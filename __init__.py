@@ -1,3 +1,10 @@
+"""
+@author: dnl13
+@title: dnl13 Computer Vision Suite
+@nickname: dnl13-cvs
+@description: This extension offers various nodes for computer Vision and image segmentation and object detection, and more.
+"""
+
 import os
 import sys
 

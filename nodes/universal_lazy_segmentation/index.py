@@ -120,10 +120,10 @@ class LazyMaskSegmentation:
                 "vae": ("VAE", ),
             }
         }
-    CATEGORY = "dnl13"
+    CATEGORY = "dnl13/lazytools"
     FUNCTION = "main"
     RETURN_TYPES = ("IMAGE", "IMAGE", "MASK", "IMAGE", "LATENT",)
-    RETURN_NAMES = ("RGBA_Images", "RGB_Images (with Background Color)", "Masks", "DINO Image Detections Debug (rgb)", "Latent for Inapaint (VAE required)")
+    RETURN_NAMES = ("RGBA_Images", "RGB_Images (with Background Color)", "Masks", "DINO Image Detections Debug (rgb)", "Latent for Inapaint (*VAE)")
 
     def main(
         self,
@@ -183,7 +183,7 @@ class LazyMaskSegmentation:
 
         # Nötige Listen initialisieren die für den Prozzess benötigt werden
         res_images_rgba, res_images_rgb, res_masks = [], [], []
-        res_boxes, res_debug_images = [], []
+        res_boxes, res_debug_images, unique_phrases = [], [], []
         sam_hint_threshold_points, sam_hint_threshold_labels = [], []
 
         # Sammel Dict für Ouptun gennerierung
@@ -331,7 +331,7 @@ class LazyMaskSegmentation:
                             if combined_image is None:
                                 combined_image = img
                             else:
-                                combined_image = torch.max(combined_image, img)
+                                combined_image = torch.max(combined_image.to(device), img.to(device))
 
                 # Füge das kombinierte Bild und die kombinierte Maske hinzu
                 if combined_image is not None:

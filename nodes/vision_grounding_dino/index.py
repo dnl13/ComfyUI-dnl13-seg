@@ -8,7 +8,7 @@ from ...utils.helper_device import list_available_devices, get_device
 from ...utils.helper_cmd_and_path import print_labels
 from .grounding_dino_predict import groundingdino_predict
 
-dnl13 = print_labels("label")
+dnl13 = print_labels("dnl13")
 
 class DinoSegmentationProcessor:
     @classmethod
