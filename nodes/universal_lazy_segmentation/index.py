@@ -26,22 +26,29 @@ class LazyMaskSegmentation:
         available_devices = list_available_devices()
         return {
             "required": {
+
                 "sam_model": ('SAM_MODEL', {}),
+
                 "grounding_dino_model": ('GROUNDING_DINO_MODEL', {}),
+
                 "image": ('IMAGE', {}),
+
                 "prompt": ("STRING", {"default": "arms, legs, eyes, hair, head", "multiline": True}),
+
                 "bbox_threshold": ("FLOAT", {
                     "default": 0.35,
                     "min": 0.01,
                     "max": 1.0,
                     "step": 0.01
                 }),
+
                 "lower_confidence_threshold": ("FLOAT", {
                     "default": 0.01,
                     "min": 0.01,
                     "max": 1.0,
                     "step": 0.01
                 }),
+
                 "upper_confidence_threshold": ("FLOAT", {
                     "default": 1,
                     "min": 0.02,
@@ -60,18 +67,21 @@ class LazyMaskSegmentation:
                     "max": 3.0,
                     "step": 0.01
                 }),
+
                 "sam_brightness_helper": ("INT", {
                     "default": 0,
                     "min": -100,
                     "max": 100,
                     "step": 1
                 }),
+
                 "sam_hint_threshold_helper": ("FLOAT", {
                     "default": 0.00,
                     "min": -1.00,
                     "max": 1.00,
                     "step": 0.001
                 }),
+
                 "sam_helper_show": ('BOOLEAN', {"default": False}),
 
                 "dedicated_device": (available_devices, ),
