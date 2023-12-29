@@ -22,14 +22,19 @@ TODO:
 """
 # Konfiguration für die Zuordnung von Unterordnern zu Klassen
 NODES_CONFIG = {
-    "model_loader_dino": ['GroundingDinoModelLoaderV1'],
-    "model_loader_sam": ['SAMModelLoader'],
-    "universal_lazy_segmentation": ['LazyMaskSegmentation'],
-    #"utils_batch_selector": ['BatchSelector'],
-    #"utils_greenscreen": ['GreenscreenGenerator'],
-    "vision_clip_segementation": ['ClipSegmentationProcessor'],
-    #"vision_grounding_dino": ['DinoSegmentationProcessor'],
-    #"vision_segment_anything": ['SAMSegmentationProcessor'],
+    "model_loader_dino": ['GroundingDinoModelLoaderV1'],            # Done
+    "model_loader_sam": ['SAMModelLoader'],                         # Done
+    "universal_lazy_segmentation": ['LazyMaskSegmentation'],        # 
+    "utils_dino_collection_selector": ['DinoCollectionPromptSelector'],
+    "utils_batch_selector": ['BatchSelector'],                      # Done
+    "utils_combine_masks": ['CombineMasks'],
+    "utils_dropshadow": ['DropShadow'],
+    "utils_greenscreen": ['GreenscreenGenerator'],
+
+    "utils_resize_masks_directional": ['ResizeMaskDirectional'],
+    "vision_clip_segementation": ['ClipSegmentationProcessor'],     # Done
+    "vision_grounding_dino": ['DinoSegmentationProcessor'],         # Done?!?
+    "vision_segment_anything": ['SAMSegmentationProcessor'],
 }
 
 # NODE_CLASS_MAPPINGS initialisieren

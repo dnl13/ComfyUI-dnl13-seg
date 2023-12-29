@@ -7,7 +7,7 @@ from ...utils.helper_device import list_available_devices, get_device
 from ...utils.helper_cmd_and_path import print_labels
 from ...utils.helper_img_utils import hex_to_rgb, blend_rgba_with_background, createDebugImage
 from ...utils.comfy_vae_encode_inpaint import VAEencode
-from ..vision_grounding_dino.grounding_dino_predict import groundingdino_predict
+from ..vision_grounding_dino.grounding_dino_predict import groundingdino_predict, get_unique_phrases, prompt_to_dino_prompt
 from ..vision_segment_anything.sam_auto_segmentation import sam_segment
 
 #Print Label
@@ -175,8 +175,7 @@ class LazyMaskSegmentation:
         empty_logits = torch.zeros((1, 1)) .to(device)
         
         # Eingabe Prompt für Verarbeitung vorbereiten 
-        prompt = prompt.strip().lower()
-        prompt_list = [p.strip() for p in prompt.split(',') if p.strip()]
+        prompt, prompt_list = prompt_to_dino_prompt(prompt)
 
         # Den User über unser Prompt informieren: 
         print(f"{dnl13} got prompt like this:", prompt_list)
@@ -245,26 +244,7 @@ class LazyMaskSegmentation:
         print(f"{dnl13} maximum masks per frame depending on prompt detection:", max_found_masks)
 
         # Erstelle eine Liste mit allen Phrasen aus dem output_mapping
-        all_phrases = set()
-        for index, data in output_mapping.items():
-            all_phrases.update(data.keys())
-
-        # Durchlaufe die prompt_list und überprüfe, ob die Phrasen im output_mapping oder als Teilphrasen vorhanden sind
-        for phrase in prompt_list:
-            # Überprüfe, ob die Phrase im output_mapping oder als Teilphrase vorhanden ist
-            found = False
-            for existing_phrase in all_phrases:
-                if phrase == existing_phrase or phrase in existing_phrase or existing_phrase in phrase:
-                    unique_phrases.append(existing_phrase)
-                    found = True
-                    break
-
-            # Falls die Phrase nicht gefunden wurde, füge sie zur eindeutigen Phrasenliste hinzu
-            if not found:
-                unique_phrases.append(phrase)
-
-        # Entferne doppelte Einträge und behalte die Reihenfolge bei
-        unique_phrases = list(dict.fromkeys(unique_phrases))
+        unique_phrases = get_unique_phrases(output_mapping, prompt_list)
 
 
         # Durchlaufe das output_mapping und füge fehlende Phrasen hinzu, dupliziere Elemente und sortiere dann

@@ -1,3 +1,4 @@
+import math
 import torch
 import numpy as np
 from PIL import Image, ImageDraw
@@ -69,3 +70,71 @@ def groundingdino_predict(dino_model,image, prompt,box_threshold,upper_confidenc
 
     return filtered_tensor_xyxy, filtered_phrases, filtered_logits
 
+def get_unique_phrases(mapping_item, prompt_list):
+    # Erstelle eine Liste mit allen Phrasen aus dem output_mapping
+    unique_phrases = []
+    all_phrases = set()
+    for index, data in enumerate(mapping_item):
+        all_phrases.update(data.keys())
+
+    # Durchlaufe die prompt_list und überprüfe, ob die Phrasen im output_mapping oder als Teilphrasen vorhanden sind
+    for phrase in prompt_list:
+        # Überprüfe, ob die Phrase im output_mapping oder als Teilphrase vorhanden ist
+        found = False
+        for existing_phrase in all_phrases:
+            if phrase == existing_phrase or phrase in existing_phrase or existing_phrase in phrase:
+                unique_phrases.append(existing_phrase)
+                found = True
+                break
+        # Falls die Phrase nicht gefunden wurde, füge sie zur eindeutigen Phrasenliste hinzu
+        if not found:
+            unique_phrases.append(phrase)
+    # Entferne doppelte Einträge und behalte die Reihenfolge bei
+    unique_phrases = list(dict.fromkeys(unique_phrases))
+    return unique_phrases
+
+def prompt_to_dino_prompt(prompt):
+    if prompt.endswith(","):
+        prompt = prompt[:-1]
+    prompt = prompt.replace(",", " .")
+    prompt = prompt.lower()
+    prompt = prompt.strip()
+    if not prompt.endswith("."):
+        prompt = prompt + "."
+    #
+    prompt_list = prompt.split('.')
+    prompt_list = [e.strip() for e in prompt_list]
+    prompt_list.pop()
+    return prompt, prompt_list
+
+
+
+def VAEencode_dnl13(vae, image, mask, device, latent_grow_mask=16):
+        x = (image.shape[1] // 8) * 8
+        y = (image.shape[2] // 8) * 8
+        mask = torch.nn.functional.interpolate(mask.reshape((-1, 1, mask.shape[-2], mask.shape[-1])), size=(image.shape[1], image.shape[2]), mode="bilinear")
+        mask = mask.to(device)
+        pixels = image.clone()
+        pixels = pixels.to(device)
+        if pixels.shape[1] != x or pixels.shape[2] != y:
+            x_offset = (pixels.shape[1] % 8) // 2
+            y_offset = (pixels.shape[2] % 8) // 2
+            pixels = pixels[:,x_offset:x + x_offset, y_offset:y + y_offset,:]
+            mask = mask[:,:,x_offset:x + x_offset, y_offset:y + y_offset]
+
+        #grow mask by a few pixels to keep things seamless in latent space
+        if latent_grow_mask == 0:
+            mask_erosion = mask
+        else:
+            kernel_tensor = torch.ones((1, 1, latent_grow_mask, latent_grow_mask), device=mask.device)
+            padding = math.ceil((latent_grow_mask - 1) / 2)
+            mask_erosion = torch.clamp(torch.nn.functional.conv2d(mask.round(), kernel_tensor, padding=padding), 0, 1)
+
+        m = (1.0 - mask.round()).squeeze(1)
+        for i in range(3):
+            pixels[:,:,:,i] -= 0.5
+            pixels[:,:,:,i] *= m
+            pixels[:,:,:,i] += 0.5
+        t = vae.encode(pixels.to(device))
+
+        return {"samples":t, "noise_mask": (mask_erosion[:,:,:x,:y].round())}

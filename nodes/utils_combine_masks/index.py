@@ -23,7 +23,7 @@ class CombineMasks:
                     },
                 }
         
-    CATEGORY = "dnl/utilitys"
+    CATEGORY = "dnl13/utilitys"
     RETURN_TYPES = ("MASK", "IMAGE", "IMAGE",)
     RETURN_NAMES = ("Combined Mask","Heatmap Mask", "BW Mask")
 

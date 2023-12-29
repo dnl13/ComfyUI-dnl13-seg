@@ -282,22 +282,28 @@ def split_image_mask(image, device):
 
     return (image_rgb, mask)
 
+
 def blend_rgba_with_background(rgba_tensor, bg_color_tensor):
     """
     Kombiniert ein RGBA-Bild mit einem RGB-Hintergrund und gibt ein RGB-Bild zurück.
 
     :param rgba_tensor: Ein RGBA-Bildtensor der Form [1, Höhe, Breite, 4].
-    :param bg_color_tensor: Ein RGB-Hintergrundtensor der Form [3, Höhe, Breite].
+    :param bg_color_tensor: Ein RGB-Hintergrundtensor der Form [Höhe, Breite, 3].
     :return: Ein RGB-Bildtensor der Form [1, Höhe, Breite, 3].
     """
-    # Extrahieren Sie den RGB-Teil und den Alpha-Kanal des Bildes
+    # Extrahiere den RGB-Teil und den Alpha-Kanal des RGBA-Bildes
     rgb = rgba_tensor[:, :, :, :3]
-    alpha = rgba_tensor[:, :, :, 3:4].squeeze(0)  # Entfernen Sie die Batch-Dimension
+    alpha = rgba_tensor[:, :, :, 3:]#.to(dtype=torch.float32) / 255.0  # Normalisiere den Alpha-Kanal
 
-    # Führen Sie das Alpha-Blending durch
-    blended_rgb = alpha * rgb + (1 - alpha) * bg_color_tensor
+    # Stelle sicher, dass der Hintergrundfarbentensor die richtige Form hat
+    bg_color_tensor = bg_color_tensor.view(1, 1, 1, 3).expand_as(rgb)
+
+    # Führe das Alpha-Blending durch
+    # Hier wird angenommen, dass bg_color_tensor bereits auf dem richtigen Gerät ist
+    blended_rgb = (alpha * rgb) + ((1 - alpha) * bg_color_tensor)
 
     return blended_rgb
+
 
 def enhance_edges(image_np_rgb, alpha=1.5, beta=50, edge_alpha=1.0):
     """
@@ -335,29 +341,24 @@ def enhance_edges(image_np_rgb, alpha=1.5, beta=50, edge_alpha=1.0):
 
 def img_combine_mask_rgba(image_np_rgb, msk_cv2_blurred):
     """
-    Kombiniert ein RGB-Bild und eine geblurte Maske in ein einziges RGBA-Bild.
+    Kombiniert ein RGB-Bild und eine geblurte Maske in ein einziges RGBA-Bild (als NumPy-Array).
 
     Diese Funktion nimmt ein RGB-Bild und eine geblurte Maske (beide als NumPy-Arrays) und fügt sie zu einem
-    einzigen RGBA-Bild zusammen, wobei die Maske als Alpha-Kanal verwendet wird. Das resultierende Bild ist 
-    ein PIL.Image im RGBA-Format, das für weitere Verarbeitung oder Anzeige genutzt werden kann.
+    einzigen RGBA-Bild zusammen, wobei die Maske als Alpha-Kanal verwendet wird.
 
     Args:
         image_np_rgb (numpy.ndarray): Ein RGB-Bild als NumPy-Array im Format [Höhe, Breite, 3].
         msk_cv2_blurred (numpy.ndarray): Eine geblurte Maske als NumPy-Array im Format [Höhe, Breite, 1].
 
     Returns:
-        PIL.Image: Das kombinierte Bild im RGBA-Format.
+        numpy.ndarray: Das kombinierte Bild im RGBA-Format als NumPy-Array.
 
     Das RGB-Bild und die geblurte Maske werden entlang der letzten Dimension (Kanäle) miteinander verbunden,
-    wobei die Maske als Alpha-Kanal für Transparenz hinzugefügt wird. Das resultierende Array wird in ein
-    PIL.Image im RGBA-Format umgewandelt.
+    wobei die Maske als Alpha-Kanal für Transparenz hinzugefügt wird.
     """
 
     # Kombiniere das RGB-Bild und die geblurte Maske zu einem RGBA-Bild
-    image_with_alpha = Image.fromarray(
-        np.concatenate((image_np_rgb, msk_cv2_blurred), axis=2).astype(np.uint8), 'RGBA'
-    )
-
+    image_with_alpha = np.concatenate((image_np_rgb, msk_cv2_blurred), axis=2)#.astype(np.uint8)
     return image_with_alpha
 
 def overlay_image(background: np.ndarray, foreground: np.ndarray, alpha: float) -> np.ndarray:
@@ -389,7 +390,7 @@ def overlay_image(background: np.ndarray, foreground: np.ndarray, alpha: float) 
 # Debug Image Generation
 # =====================
 
-def createDebugImage( image, dino_bbox, dino_pharses, dino_logits, toggle_sam_debug, sam_contrasts_helper, sam_brightness_helper, sam_hint_grid_points, sam_hint_grid_labels):
+def createDebugImage( image, dino_bbox, dino_pharses, dino_logits, toggle_sam_debug=False, sam_contrasts_helper=1.25, sam_brightness_helper=0, sam_hint_grid_points=None, sam_hint_grid_labels=None):
     """
     Erstellt ein Debug-Bild, das Bounding-Boxen, Phrasen, Logits und optionale Gitterpunkte anzeigt.
 
