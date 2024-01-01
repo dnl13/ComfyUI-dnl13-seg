@@ -542,3 +542,23 @@ def createDebugImageTensor(image_tensor, dino_bbox_list, dino_phrases_list, dino
     final_tensor = final_tensor.unsqueeze(0)
 
     return final_tensor
+
+
+def crop_tensor_by_bbox_batch(tensor, bbox_tensor):
+    cropped_tensors = []
+    for i in range(tensor.size(0)):
+        bbox = bbox_tensor[i]
+        if torch.all(bbox == 0):
+            bbox = torch.tensor([0, 0, tensor.size(2), tensor.size(1)])
+
+        x_min, y_min, x_max, y_max = bbox.int()
+
+        x_min = max(0, x_min.item())
+        y_min = max(0, y_min.item())
+        x_max = min(tensor.size(2), x_max.item())
+        y_max = min(tensor.size(1), y_max.item())
+
+        cropped_tensor = tensor[i, y_min:y_max, x_min:x_max, :]
+        cropped_tensors.append(cropped_tensor)
+
+    return cropped_tensors

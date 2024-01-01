@@ -227,7 +227,7 @@ class DinoSegmentationProcessor:
         empty_img_rgba = torch.zeros((1, img_height, img_width, 4), dtype=torch.float32)
         #empty_img_rgba += bg_color_tensor_with_alpha
 
-        empty_box = torch.zeros((4)) .to(device)
+        empty_box = torch.zeros((1,4)) .to(device)
         empty_logits = torch.zeros((1)) .to(device)
         empty_mask = torch.zeros([1, 1, img_height, img_width])
         empty_latent_batched = torch.zeros([img_batch_size, 4, img_height // 8, img_width // 8], device=device)
@@ -287,7 +287,7 @@ class DinoSegmentationProcessor:
                 phrase_data = {
                     "frame": index,
                     "phrase": p,
-                    'bbox': bbox[i],
+                    'bbox': bbox[i].unsqueeze(0),
                     "mask": phrase_mask,
                     "img_rgba": current_img_rgba,
                     "img_rgb": blend_rgba_with_background(current_img_rgba.to(device), bg_color_tensor.to(device)),
@@ -388,6 +388,8 @@ class DinoSegmentationProcessor:
                     tensor_liste = [ten.to(device) for ten in tensor_liste]
                     zusammengeführte_tensoren = torch.cat(tensor_liste, dim=0).to("cpu")
                     werte_dict[key] = zusammengeführte_tensoren
+
+
                 else:
                     if vae is not None:
                         samples_list = []
@@ -411,8 +413,14 @@ class DinoSegmentationProcessor:
         res_debug_images = torch.cat(res_debug_images, dim=0).to("cpu")
 
         res_dino_collection = organisierte_daten
+        
+        # Löschen des Modells
+        del grounding_dino_model
+        del vae
+        # CUDA-Cache freigeben
+        torch.cuda.empty_cache()
 
-        return (res_images_rgba, res_images_rgb, res_masks, res_debug_images, res_latent_inpaint, res_bboxes, res_dino_collection, )
+        return (res_images_rgba, res_images_rgb, res_masks, res_debug_images, res_latent_inpaint, res_bboxes.tolist(), res_dino_collection, )
 
         """
         DYNAMIC OUTPUTS EXPERIMENT
