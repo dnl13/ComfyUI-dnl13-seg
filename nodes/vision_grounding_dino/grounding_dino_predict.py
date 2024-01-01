@@ -8,6 +8,44 @@ import torchvision.transforms as transforms
 import torchvision.transforms.functional as TF
 from ...libs.groundingdino.util.inference import Model, predict
 
+def get_unique_phrases(mapping_item, prompt_list):
+    # Erstelle eine Liste mit allen Phrasen aus dem output_mapping
+    unique_phrases = []
+    all_phrases = set()
+    for index, data in enumerate(mapping_item):
+        all_phrases.update(data.keys())
+
+    # Durchlaufe die prompt_list und überprüfe, ob die Phrasen im output_mapping oder als Teilphrasen vorhanden sind
+    for phrase in prompt_list:
+        # Überprüfe, ob die Phrase im output_mapping oder als Teilphrase vorhanden ist
+        found = False
+        for existing_phrase in all_phrases:
+            if phrase == existing_phrase or phrase in existing_phrase or existing_phrase in phrase:
+                unique_phrases.append(existing_phrase)
+                found = True
+                break
+        # Falls die Phrase nicht gefunden wurde, füge sie zur eindeutigen Phrasenliste hinzu
+        if not found:
+            unique_phrases.append(phrase)
+    # Entferne doppelte Einträge und behalte die Reihenfolge bei
+    unique_phrases = list(dict.fromkeys(unique_phrases))
+    return unique_phrases
+
+def prompt_to_dino_prompt(prompt):
+    if prompt.endswith(","):
+        prompt = prompt[:-1]
+    prompt = prompt.replace(",", " .")
+    prompt = prompt.lower()
+    prompt = prompt.strip()
+    if not prompt.endswith("."):
+        prompt = prompt + "."
+    #
+    prompt_list = prompt.split('.')
+    prompt_list = [e.strip() for e in prompt_list]
+    prompt_list.pop()
+    return prompt, prompt_list
+
+
 
 def groundingdino_predict(dino_model,image, prompt,box_threshold,upper_confidence_threshold, lower_confidence_threshold, device ):
 
@@ -69,45 +107,6 @@ def groundingdino_predict(dino_model,image, prompt,box_threshold,upper_confidenc
 
 
     return filtered_tensor_xyxy, filtered_phrases, filtered_logits
-
-def get_unique_phrases(mapping_item, prompt_list):
-    # Erstelle eine Liste mit allen Phrasen aus dem output_mapping
-    unique_phrases = []
-    all_phrases = set()
-    for index, data in enumerate(mapping_item):
-        all_phrases.update(data.keys())
-
-    # Durchlaufe die prompt_list und überprüfe, ob die Phrasen im output_mapping oder als Teilphrasen vorhanden sind
-    for phrase in prompt_list:
-        # Überprüfe, ob die Phrase im output_mapping oder als Teilphrase vorhanden ist
-        found = False
-        for existing_phrase in all_phrases:
-            if phrase == existing_phrase or phrase in existing_phrase or existing_phrase in phrase:
-                unique_phrases.append(existing_phrase)
-                found = True
-                break
-        # Falls die Phrase nicht gefunden wurde, füge sie zur eindeutigen Phrasenliste hinzu
-        if not found:
-            unique_phrases.append(phrase)
-    # Entferne doppelte Einträge und behalte die Reihenfolge bei
-    unique_phrases = list(dict.fromkeys(unique_phrases))
-    return unique_phrases
-
-def prompt_to_dino_prompt(prompt):
-    if prompt.endswith(","):
-        prompt = prompt[:-1]
-    prompt = prompt.replace(",", " .")
-    prompt = prompt.lower()
-    prompt = prompt.strip()
-    if not prompt.endswith("."):
-        prompt = prompt + "."
-    #
-    prompt_list = prompt.split('.')
-    prompt_list = [e.strip() for e in prompt_list]
-    prompt_list.pop()
-    return prompt, prompt_list
-
-
 
 def VAEencode_dnl13(vae, image, mask, device, latent_grow_mask=16):
         x = (image.shape[1] // 8) * 8

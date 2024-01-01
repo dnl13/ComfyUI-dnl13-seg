@@ -21,15 +21,25 @@ class DinoCollectionPromptSelector:
 
     def main(self, dino_collection, prompt_selector):
         print("-------------------- DinoCollectionSelector --------------------")
-        print(len(dino_collection))
-        print("prompt_selector", prompt_selector)
+        #print(len(dino_collection))
+        #print(type(dino_collection))
+        #print(dino_collection)
+        #print("prompt_selector", prompt_selector)
 
-        image_rgba = None 
-        image_rgb = None 
+        # Erstellen einer Liste der Schlüssel (Phrasen)
+        schluessel_liste = list(dino_collection.keys())
+
+        # Zugriff auf Daten über den Index
+        phrase = schluessel_liste[prompt_selector-1]
+        daten_fuer_phrase = dino_collection[phrase]
+
+        image_rgba = daten_fuer_phrase['img_rgba']
+        image_rgb = daten_fuer_phrase['img_rgb'] 
         cropped_image = None
-        bbox = None
-        latent = None 
-        dino_collection = None
+        image_mask = daten_fuer_phrase['mask']
+        bbox = daten_fuer_phrase['bbox']
+        latent = daten_fuer_phrase['latent'] 
+        dino_collection = dino_collection
 
 
-        return (image_rgba, image_rgb, cropped_image,bbox,latent, dino_collection, )
+        return (image_rgba, image_rgb, cropped_image, image_mask, bbox, latent, dino_collection, )

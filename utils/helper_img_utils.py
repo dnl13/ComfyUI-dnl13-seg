@@ -487,4 +487,58 @@ def createDebugImage( image, dino_bbox, dino_pharses, dino_logits, toggle_sam_de
 
 
 
+def createDebugImageTensor(image_tensor, dino_bbox_list, dino_phrases_list, dino_logits_list):
+    """
+    Erstellt ein Debug-Bild in Tensor-Form, indem es Bounding Boxen, Phrasen und Logit-Werte auf das ursprüngliche Bild zeichnet.
 
+    Args:
+        image_tensor (torch.Tensor): Das ursprüngliche Bild als Tensor mit der Form [Höhe, Breite, Kanäle].
+            Der Tensor sollte entweder im Bereich [0, 1] (als Float) oder [0, 255] (als UInt8) sein.
+        dino_bbox_list (torch.Tensor oder list of tuples): Eine Liste oder ein Tensor von Bounding Box-Koordinaten.
+            Jede Bounding Box sollte als Tuple oder Liste von vier Werten (x_min, y_min, x_max, y_max) dargestellt sein.
+        dino_phrases_list (list of str): Eine Liste von Phrasen, die den Bounding Boxen zugeordnet sind.
+            Jede Phrase sollte ein String sein.
+        dino_logits_list (torch.Tensor oder list of float): Eine Liste oder ein Tensor von Logit-Werten,
+            die die Konfidenz oder ein relevantes Maß für jede Bounding Box darstellen.
+
+    Returns:
+        torch.Tensor: Ein Tensor des bearbeiteten Debug-Bildes. Der Tensor hat die Form [Kanäle, Höhe, Breite]
+            und ist im Bereich [0, 1] skaliert.
+
+    Diese Funktion verarbeitet ein Eingabebild, das als PyTorch-Tensor vorliegt, und zeichnet Bounding Boxen, 
+    zugehörige Phrasen und Logit-Werte direkt auf das Bild. Dies ist nützlich für die visuelle Überprüfung 
+    und das Debugging von Ergebnissen aus Bildverarbeitungsprozessen. Die Funktion konvertiert den Tensor
+    in ein NumPy-Array für die Bildbearbeitung und anschließend zurück in einen Tensor für die weitere Verarbeitung 
+    oder Anzeige.
+    """
+
+    # Stelle sicher, dass der Tensor im Bereich [0, 1] ist und konvertiere ihn in 'uint8'
+    if torch.max(image_tensor) <= 1.0:
+        image_tensor = (image_tensor * 255).type(torch.uint8)
+
+    # Konvertiere den Tensor direkt in ein NumPy-Array
+    np_image = image_tensor.numpy()
+
+    # Konvertiere dino_bbox_list und dino_logits_list in Listen von Tensoren, wenn sie Tensoren sind
+    if isinstance(dino_bbox_list, torch.Tensor):
+        dino_bbox_list = dino_bbox_list.tolist()
+    if isinstance(dino_logits_list, torch.Tensor):
+        dino_logits_list = dino_logits_list.tolist()
+
+    # Gehe durch jede Bounding Box, Phrase und Logit
+    for bbox, phrase, logit in zip(dino_bbox_list, dino_phrases_list, dino_logits_list):
+        bbox = tuple(map(int, bbox))
+        x1, y1, x2, y2 = bbox
+
+        # Zeichne die Bounding Box
+        cv2.rectangle(np_image, (x1, y1), (x2, y2), (255, 0, 0), 2)
+
+        # Text für die Bounding Box
+        text = f"{phrase}: {logit:.2f}"
+        cv2.putText(np_image, text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+
+    # Konvertiere das bearbeitete Bild zurück in einen Tensor
+    final_tensor = torch.from_numpy(np_image).type(torch.float32) / 255.0
+    final_tensor = final_tensor.unsqueeze(0)
+
+    return final_tensor
