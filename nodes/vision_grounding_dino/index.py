@@ -59,84 +59,6 @@ def adjust_bboxes(bboxes, factor, img_width, img_height):
     return new_bboxes
 
 
-def create_masked_tensors_for_each_frame(data_by_phrase):
-    for phrase, frames in data_by_phrase.items():
-        for frame_data in frames:
-            # Annahme: img_ts ist der erste Eintrag in der Liste
-            img_ts = frame_data['img_ts'][0]
-            bboxes = frame_data['bbox'][0]
-
-            # Maskiere das Bild für alle BBoxes
-            masked_img_ts = mask_image(img_ts, bboxes)
-
-            # Aktualisiere das maskierte Bild im frame_data
-            frame_data['masked_img_ts'] = masked_img_ts
-
-    return data_by_phrase
-
-
-def extract_tensors(data_by_phrase):
-    tensors_by_phrase = {}
-
-    for phrase, frames in data_by_phrase.items():
-        # Sammle alle maskierten Bilder und Logits für die aktuelle Phrase
-        masked_images = [frame_data['masked_img_ts']
-                         for frame_data in frames if 'masked_img_ts' in frame_data]
-        bboxes = [frame_data['bbox'][0]
-                  for frame_data in frames if 'bbox' in frame_data]
-        logits = [frame_data['logits'][0]
-                  for frame_data in frames if 'logits' in frame_data]
-
-        # Speichere die Daten in einem Dictionary
-        tensors = {}
-        if masked_images:
-            tensors['img'] = torch.stack(masked_images)
-        if bboxes:
-            tensors['bbox'] = bboxes  # Verwende eine Liste anstatt zu stapeln
-        if logits:
-            tensors['logits'] = logits
-
-        tensors_by_phrase[phrase] = tensors if tensors else None
-
-    return tensors_by_phrase
-
-
-def mask_image(tensor_image, bboxes):
-    # Initialisiere eine Maske mit False, die die gleiche Höhe und Breite wie das Bild hat
-    height, width, _ = tensor_image.shape
-    mask = torch.zeros((height, width), dtype=torch.bool)
-
-    # Füge einen Alpha-Kanal zum Tensor hinzu, initialisiere ihn mit 255 (undurchsichtig)
-    alpha_channel = torch.ones((height, width), dtype=torch.uint8) * 255
-
-    # Erstelle eine Maske für jede BBox und kombiniere sie
-    for box in bboxes:
-        x_min, y_min, x_max, y_max = box.int()
-        mask[y_min:y_max, x_min:x_max] = True
-
-    # Setze den Alpha-Kanal auf 0 (transparent) für alle Pixel außerhalb der Masken
-    alpha_channel[~mask] = 0
-
-    # Kombiniere die ursprünglichen Bildkanäle mit dem Alpha-Kanal
-    masked_tensor_image = torch.cat(
-        (tensor_image, alpha_channel.unsqueeze(2)), dim=2)
-
-    return masked_tensor_image
-
-
-def collect_data_for_phrases(output_mapping, unique_phrases, dummy_data):
-    data_by_phrase = {phrase: [] for phrase in unique_phrases}
-    for frame in output_mapping:
-        for phrase in unique_phrases:
-            if phrase in frame:
-                data_by_phrase[phrase].append(frame[phrase])
-            else:
-                # Füge Dummy-Daten für fehlende Phrasen hinzu
-                data_by_phrase[phrase].append(dummy_data)
-
-    return data_by_phrase
-
-
 def get_unique_phrases(data, prompt_list):
     # Sammle alle Phrasen aus 'data'
     all_phrases = set(entry['phrase'] for entry in data)
@@ -387,9 +309,6 @@ class DinoSegmentationProcessor:
                 for entry in matching_entries:
                     entry["latent"] = VAEencode_dnl13(vae=vae, image=item.unsqueeze(0), mask=entry["mask"], latent_grow_mask=latent_grow_mask, device=device)
     	            
-                    print("!>>>s", entry["latent"]["samples"].shape)
-                    print("!>>>n", entry["latent"]["noise_mask"].shape)
-
             # Sammeln der Tensoren
             samples_list = [d["samples"] for d in res_latent_inpaint]
             noise_mask_list = [d["noise_mask"] for d in res_latent_inpaint]
