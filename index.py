@@ -1,9 +1,6 @@
 import os
 import importlib
 
-from .nodes.model_loader_sam import SAMModelLoader
-from .nodes.universal_lazy_segmentation import LazyMaskSegmentation
-from .nodes.vision_clip_segementation import ClipSegmentationProcessor
 from .utils.helper_cmd_and_path import print_labels
 
 dnl13 = print_labels("dnl13")
@@ -13,27 +10,39 @@ TODO:
     working states:
     [x] GroundingDinoModelLoaderV1
     [x] SAMModelLoader
-    [ ] LazyMaskSegmentation
-    [ ] BatchSelector
+
+    [~] LazyMaskSegmentation
+
+    [x] DinoCollectionPromptSelector
+    [x] BatchSelector
+    [ ] CombineMasks
+    [ ] DropShadow
     [ ] GreenscreenGenerator
-    [x] ClipSegmentationProcessor
-    [ ] DinoSegmentationProcessor
-    [ ] SAM_Mask_Processor
+    [ ] DinoCollectionCropImages
+
+    [ ] ResizeMaskDirectional
+    [~] ClipSegmentationProcessor
+    [x] DinoSegmentationProcessor
+    [ ] SAMSegmentationProcessor
+
 """
 # Konfiguration für die Zuordnung von Unterordnern zu Klassen
 NODES_CONFIG = {
-    "model_loader_dino": ['GroundingDinoModelLoaderV1'],            # Done
-    "model_loader_sam": ['SAMModelLoader'],                         # Done
-    "universal_lazy_segmentation": ['LazyMaskSegmentation'],        # 
+    "model_loader_dino": ['GroundingDinoModelLoaderV1'],               
+    "model_loader_sam": ['SAMModelLoader'],                            
+
+    "universal_lazy_segmentation": ['LazyMaskSegmentation'],            
+
     "utils_dino_collection_selector": ['DinoCollectionPromptSelector'],
-    "utils_batch_selector": ['BatchSelector'],                      # Done
+    "utils_batch_selector": ['BatchSelector'],                         
     "utils_combine_masks": ['CombineMasks'],
     "utils_dropshadow": ['DropShadow'],
     "utils_greenscreen": ['GreenscreenGenerator'],
+    "utils_crop_images":['DinoCollectionCropImages'],
 
     "utils_resize_masks_directional": ['ResizeMaskDirectional'],
-    "vision_clip_segementation": ['ClipSegmentationProcessor'],     # Done
-    "vision_grounding_dino": ['DinoSegmentationProcessor'],         # Done?!?
+    "vision_clip_segementation": ['ClipSegmentationProcessor'],        
+    "vision_grounding_dino": ['DinoSegmentationProcessor'],            
     "vision_segment_anything": ['SAMSegmentationProcessor'],
 }
 

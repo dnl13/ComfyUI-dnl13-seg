@@ -8,8 +8,7 @@ from ...utils.helper_cmd_and_path import print_labels
 from ...utils.helper_img_utils import hex_to_rgb, blend_rgba_with_background, createDebugImage
 from ...utils.comfy_vae_encode_inpaint import VAEencode
 from ..vision_grounding_dino.grounding_dino_predict import groundingdino_predict, get_unique_phrases, prompt_to_dino_prompt
-from ..vision_segment_anything.sam_auto_segmentation import sam_segment
-
+from ..vision_segment_anything.sam_segmentation_lip import sam_segment
 #Print Label
 dnl13 = print_labels("dnl13")
 
@@ -19,7 +18,31 @@ TODO: LazyMaskSegmentation
   [ ] performance ab ~75 batch_size bricht ein
   [ ] clipseq für besser sam_hints ?  (tests needed)
 """
- 
+def get_unique_phrases_sam(mapping_item, prompt_list):
+    # Erstelle eine Liste mit allen Phrasen aus dem output_mapping
+    unique_phrases = []
+    all_phrases = set()
+    for index, frame in enumerate(mapping_item):
+        for key, item in mapping_item[index].items():
+            
+            all_phrases.add(key)
+    # Durchlaufe die prompt_list und überprüfe, ob die Phrasen im output_mapping oder als Teilphrasen vorhanden sind
+    for phrase in prompt_list:
+        # Überprüfe, ob die Phrase im output_mapping oder als Teilphrase vorhanden ist
+        found = False
+        for existing_phrase in all_phrases:
+            if phrase == existing_phrase or phrase in existing_phrase or existing_phrase in phrase:
+                unique_phrases.append(existing_phrase)
+                found = True
+                break
+        # Falls die Phrase nicht gefunden wurde, füge sie zur eindeutigen Phrasenliste hinzu
+        if not found:
+            unique_phrases.append(phrase)
+    # Entferne doppelte Einträge und behalte die Reihenfolge bei
+    unique_phrases = list(dict.fromkeys(unique_phrases))
+    return unique_phrases
+
+
 class LazyMaskSegmentation:
     @classmethod
     def INPUT_TYPES(cls):
@@ -60,6 +83,7 @@ class LazyMaskSegmentation:
                 "multimask": ('BOOLEAN', {"default": False}),
 
                 "two_pass": ('BOOLEAN', {"default": False}),
+                "clipseg": ('BOOLEAN', {"default": False}),
 
                 "sam_contrasts_helper": ("FLOAT", {
                     "default": 1.25,
@@ -137,6 +161,7 @@ class LazyMaskSegmentation:
         upper_confidence_threshold=1,
         multimask=False,
         two_pass=False,
+        clipseg=False,
         sam_contrasts_helper=1.25,
         sam_brightness_helper=0,
         sam_hint_threshold_helper=0.00,
@@ -150,16 +175,21 @@ class LazyMaskSegmentation:
     ):
         # Zu ausführendes Gerät auswählen und setzen
         device = get_device(dedicated_device)
+        
+        torch.cuda.empty_cache()
 
         # Bild Tensor informationen
         img_batch, img_height, img_width, img_channel = image.shape
                
         # Konvertiere den Hex-Farbcode direkt in einen normalisierten Tensor
+        #bg_color_rgb = hex_to_rgb(background_color)
+        #bg_color_rgb_normalized = torch.tensor([value / 255.0 for value in bg_color_rgb], dtype=torch.float32)
+        #bg_color_tensor = torch.tensor([value / 255.0 for value in bg_color_rgb], dtype=torch.float32).to(device)
+        #bg_color_tensor = bg_color_tensor.view(1, 1, 1, 3).expand(1, img_height, img_width, 3)
         bg_color_rgb = hex_to_rgb(background_color)
-        bg_color_rgb_normalized = torch.tensor([value / 255.0 for value in bg_color_rgb], dtype=torch.float32)
-        bg_color_tensor = torch.tensor([value / 255.0 for value in bg_color_rgb], dtype=torch.float32).to(device)
-        bg_color_tensor = bg_color_tensor.view(1, 1, 1, 3).expand(1, img_height, img_width, 3)
-        
+        bg_color_tensor = torch.tensor(bg_color_rgb, dtype=torch.float32) / 255.0
+        bg_color_tensor = bg_color_tensor.view(1, 1, 1, 3)
+
         # Erstelle ein transparentes Bild 
         transparent_image = Image.new("RGBA", (img_width, img_height), (0, 0, 0, 0))
         transparent_image_np = np.zeros((img_height, img_width, 4), dtype=np.uint8)
@@ -182,7 +212,7 @@ class LazyMaskSegmentation:
 
         # Nötige Listen initialisieren die für den Prozzess benötigt werden
         res_images_rgba, res_images_rgb, res_masks = [], [], []
-        res_boxes, res_debug_images, unique_phrases = [], [], []
+        res_inpaint_latent, res_debug_images, unique_phrases = [], [], []
         sam_hint_threshold_points, sam_hint_threshold_labels = [], []
 
         # Sammel Dict für Ouptun gennerierung
@@ -190,9 +220,9 @@ class LazyMaskSegmentation:
 
         # Modelle auf Geräte verschieben und in evaluierung schalten
         grounding_dino_model.to(device)
-        grounding_dino_model.eval()
+        #grounding_dino_model.eval()
         sam_model.to(device)
-        sam_model.eval()
+        #sam_model.eval()
 
         for index, item in tqdm(enumerate(image), total=len(image), desc=f"{dnl13} analyizing batch", unit="img", ncols=100, colour='green'):
             item = Image.fromarray(np.clip(255. * item.cpu().numpy(), 0, 255).astype(np.uint8)).convert('RGBA')
@@ -204,7 +234,7 @@ class LazyMaskSegmentation:
 
             for i, phrase in enumerate(phrases):
                 sam_masks, masked_image, sam_grid_points, sam_grid_labels  = sam_segment(sam_model, item, boxes[i], clean_mask_holes, clean_mask_islands, mask_blur, mask_grow_shrink_factor, two_pass, sam_contrasts_helper, sam_brightness_helper,sam_hint_threshold_helper, sam_helper_show, device)
-                masked_image = masked_image.unsqueeze(0)
+                masked_image = masked_image.unsqueeze(0) / 255.0
                 phrase_boxes[phrase]['box'].append(boxes[i].to(device))
                 phrase_boxes[phrase]['mask'].append(sam_masks.to(device))
                 phrase_boxes[phrase]['image'].append(masked_image.to(device))
@@ -244,7 +274,7 @@ class LazyMaskSegmentation:
         print(f"{dnl13} maximum masks per frame depending on prompt detection:", max_found_masks)
 
         # Erstelle eine Liste mit allen Phrasen aus dem output_mapping
-        unique_phrases = get_unique_phrases(output_mapping, prompt_list)
+        unique_phrases = get_unique_phrases_sam(output_mapping, prompt_list)
 
 
         # Durchlaufe das output_mapping und füge fehlende Phrasen hinzu, dupliziere Elemente und sortiere dann
@@ -316,8 +346,7 @@ class LazyMaskSegmentation:
                 # Füge das kombinierte Bild und die kombinierte Maske hinzu
                 if combined_image is not None:
                     res_images_rgba.append(combined_image)
-
-                    rgb_image_tensor = blend_rgba_with_background(combined_image.to(device), bg_color_tensor.to(device))
+                    rgb_image_tensor = blend_rgba_with_background(combined_image.to(device), bg_color_tensor.squeeze(0).to(device))
                     res_images_rgb.append(rgb_image_tensor)  # Nur RGB-Kanäle hinzufügen
 
                 if combined_mask is not None:
@@ -334,10 +363,16 @@ class LazyMaskSegmentation:
             res_inpaint_latent = res_inpaint_latent[0]
         else: 
             empty_latent = torch.zeros([img_batch, 4, img_height // 8, img_width // 8], device=device)
-            res_inpaint_latent= {"samples":empty_latent}
+            res_inpaint_latent = {"samples":empty_latent}
         
         res_images_rgba = torch.cat(res_images_rgba, dim=0).to("cpu")
         res_images_rgb = torch.cat(res_images_rgb, dim=0).to("cpu")
         res_masks = torch.cat(res_masks, dim=0).to("cpu")
+
+        del grounding_dino_model
+        del sam_model
+        del vae
+        # CUDA-Cache freigeben
+        torch.cuda.empty_cache()
 
         return (res_images_rgba, res_images_rgb, res_masks, res_debug_images, res_inpaint_latent, )

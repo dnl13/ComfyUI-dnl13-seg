@@ -515,7 +515,6 @@ def createDebugImageTensor(image_tensor, dino_bbox_list, dino_phrases_list, dino
     # Stelle sicher, dass der Tensor im Bereich [0, 1] ist und konvertiere ihn in 'uint8'
     if torch.max(image_tensor) <= 1.0:
         image_tensor = (image_tensor * 255).type(torch.uint8)
-
     # Konvertiere den Tensor direkt in ein NumPy-Array
     np_image = image_tensor.numpy()
 
