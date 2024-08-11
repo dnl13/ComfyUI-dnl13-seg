@@ -1,5 +1,6 @@
 
-### **WARNING! The documentation is not up to date. I will update it shortly.**
+### **WARNING! The documentation is not up to date. ~~I will update it shortly~~**
+Due to time constraints, I am unable to continue development on this project. However, it is open for further development by the community. Feel free to contribute or fork the repository.
 <hr>
 ## Why?
 
